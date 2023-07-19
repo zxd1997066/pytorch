@@ -642,20 +642,82 @@ class {module_name}(torch.nn.Module):
         Return the Python code generated from the ``Graph`` underlying this
         ``GraphModule``.
         """
+
+        self.real_recompile()
         if not hasattr(self, '_code'):
             raise RuntimeError('Code has not been generated! Please report a bug to PyTorch')
         return self._code
 
+    @property
+    def graph_in_spec(self):
+        self.real_recompile()
+        # even after recompiliation, _graph_in_spec may still be undefined
+        # if self._graph._codegen is not a _PyTreeCodeGen. So we need provide
+        # a default value for getattr.
+        return getattr(self, "_graph_in_spec", None)
+
+    @property
+    def _in_spec(self):
+        """
+        Deprecated. Use graph_in_spec instead.
+        """
+        return self.graph_in_spec
+
+    @property
+    def graph_out_spec(self):
+        self.real_recompile()
+        # even after recompiliation, _graph_out_spec may still be undefined
+        # if self._graph._codegen is not a _PyTreeCodeGen. So we need provide
+        # a default value for getattr.
+        return getattr(self, "_graph_out_spec", None)
+
+    @property
+    def _out_spec(self):
+        """
+        Deprecated. Use graph_out_spec instead.
+        """
+        return self.graph_out_spec
+
     @compatibility(is_backward_compatible=True)
-    def recompile(self) -> PythonCode:
+    @classmethod
+    def recompile(cls):
+        cls.forward = cls._lazy_forward
+
+    @classmethod
+    def _needs_recompile(cls):
+        return cls.forward is cls._lazy_forward
+
+    def _lazy_forward(self, *args, **kwargs):
+        self._real_recompile()
+        assert not self._needs_recompile()
+
+        # call `__call__` rather than 'forward' since recompilation may
+        # install a wrapper for `__call__` to provide a customized error
+        # message.
+        return self(*args, **kwargs)
+
+    forward = _lazy_forward
+
+    def real_recompile(self):
+        """
+        A torch script safe wrapper around _real_recompile.
+        Call _real_recompile only if we have not done that yet after the last
+        change to the fx.Graph
+        """
+        # Jit scripting can not handle `_needs_recompile` or `_real_recompile`.
+        if not torch.jit.is_scripting():
+            if self._needs_recompile():
+                self._real_recompile()
+
+    def _real_recompile(self) -> PythonCode:
         """
         Recompile this GraphModule from its ``graph`` attribute. This should be
         called after editing the contained ``graph``, otherwise the generated
         code of this ``GraphModule`` will be out of date.
         """
         if isinstance(self._graph._codegen, _PyTreeCodeGen):
-            self._in_spec = self._graph._codegen.pytree_info.in_spec
-            self._out_spec = self._graph._codegen.pytree_info.out_spec
+            self._graph_in_spec = self._graph._codegen.pytree_info.in_spec
+            self._graph_out_spec = self._graph._codegen.pytree_info.out_spec
         python_code = self._graph.python_code(root_module='self')
         self._code = python_code.src
 
@@ -669,6 +731,7 @@ class {module_name}(torch.nn.Module):
         # In most cases, super().__call__ should be torch.nn.Module.__call__.
         # We do not want to hold a reference to Module.__call__ here; doing so will
         # bypass patching of torch.nn.Module.__call__ done while symbolic tracing.
+
         cls_call = cls.__call__ if "__call__" in vars(cls) else None
 
         if '_wrapped_call' not in vars(cls):
@@ -678,27 +741,28 @@ class {module_name}(torch.nn.Module):
             return self._wrapped_call(self, *args, **kwargs)
 
         cls.__call__ = call_wrapped
-
         return python_code
 
     # Passing Tracer as argument allows subclasses extending fx.GraphModule
     # define their own Tracer (extending fx.Tracer).
     def __reduce_deploy__(self, importer: Importer):
+        # call _real_recompile before accessing self.__dict__ since the former
+        # may add extra keys to self.__dict__.
+        python_code = self._real_recompile()
         dict_without_graph = self.__dict__.copy()
         dict_without_graph['_graphmodule_cls_name'] = self.__class__.__name__
         del dict_without_graph['_graph']
 
-        python_code = self.recompile()
         import_block = _format_import_block(python_code.globals, importer)
         return (reduce_deploy_graph_module, (dict_without_graph, import_block))
 
     def __reduce_package__(self, exporter: PackageExporter):
+        python_code = self._real_recompile()
         dict_without_graph = self.__dict__.copy()
         dict_without_graph['_graphmodule_cls_name'] = self.__class__.__name__
         del dict_without_graph['_graph']
 
         generated_module_name = f'fx-generated._{exporter.get_unique_id()}'
-        python_code = self.recompile()
         import_block = _format_import_block(python_code.globals, exporter.importer)
         module_code = import_block + self.code
         exporter.save_source_string(generated_module_name, module_code)
@@ -712,8 +776,8 @@ class {module_name}(torch.nn.Module):
         On the deserialization side, we symbolically trace through the generated
         code to regenerate the underlying ``Graph``
         """
+        python_code = self._real_recompile()
         dict_without_graph = self.__dict__.copy()
-        python_code = self.recompile()
         import_block = _format_import_block(python_code.globals, sys_importer)
         del dict_without_graph['_graph']
         return (reduce_graph_module, (dict_without_graph, import_block))
@@ -776,7 +840,7 @@ class {module_name}(torch.nn.Module):
     def __str__(self) -> str:
         orig_str = super().__str__()
         print_readable_reminder = "# To see more debug info, please use `graph_module.print_readable()`"
-        return '\n'.join([orig_str, self._code, print_readable_reminder])
+        return '\n'.join([orig_str, self.code, print_readable_reminder])
 
     def _replicate_for_data_parallel(self):
         new_gm = self.__copy__()

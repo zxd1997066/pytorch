@@ -721,6 +721,11 @@ class Tracer(TracerBase):
 
             A ``Graph`` representing the semantics of the passed-in ``root``.
         """
+        if isinstance(root, GraphModule):
+            # If we retracing a GraphModule, make sure we realize the lazy
+            # recompilation.
+            root.real_recompile()
+
         global _is_fx_tracing_flag
         old_is_fx_tracing_flag = _is_fx_tracing_flag
         _is_fx_tracing_flag = True

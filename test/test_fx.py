@@ -250,6 +250,9 @@ class TestFX(JitTestCase):
                 return a * 2
 
         gm = symbolic_trace(MyModule())
+        # TODO: this need revise before landing. Adding this to see more
+        # test signals.
+        gm.real_recompile()
         self.assertIn(os.path.basename(__file__), gm.forward.__code__.co_filename)
 
     def test_custom_import(self):
