@@ -189,7 +189,7 @@ class TestForeach(TestCase):
             wrapped_op, ref, inplace_op, inplace_ref = self._get_funcs(op)
             if has_out_of_place:
                 self._binary_test(
-                    dtype, wrapped_op, ref, [sample.input, rhs_arg],
+                    dtype, wrapped_op, ref, [sample.input, *sample.args],
                     is_fastpath and not disable_fastpath, False,
                     alpha=alpha, zero_size=zero_size, scalar_self_arg=False,
                 )
@@ -726,7 +726,7 @@ class TestForeach(TestCase):
         # tensors: ['cuda', 'cpu]
         tensors = list(op.sample_inputs(device, dtype, num_input_tensors=[2]))[0].input
         tensors[1] = tensors[1].to("cpu")
-        if op.has_no_out_of_place:
+        if not op.has_no_out_of_place:
             try:
                 actual = method((tensors,), False, False, zero_size=False)
             except RuntimeError as e:
@@ -742,7 +742,7 @@ class TestForeach(TestCase):
             with self.assertRaisesRegex(type(e), str(e)):
                 ref_inplace((tensors,))
         else:
-            if op.has_no_out_of_place:
+            if not op.has_no_out_of_place:
                 self.assertEqual(expected, tensors)
             else:
                 self.assertEqual([torch.zeros_like(t) for t in tensors], tensors)
