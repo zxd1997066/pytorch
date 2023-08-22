@@ -2978,6 +2978,7 @@ def meta__foreach_addcop_tensor(self, tensor1, tensor2, scalars):
 def meta__foreach_copy_inplace(self, src, non_blocking=False):
     _check_foreach_binop_tensor_lists(self, src)
 
+
 @register_meta([aten._foreach_clamp.default])
 def meta__foreach_clamp(self, min, max):
     torch._check(

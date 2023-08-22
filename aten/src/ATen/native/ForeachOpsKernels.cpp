@@ -20,8 +20,8 @@
 #include <ATen/ops/_foreach_ceil_native.h>
 #include <ATen/ops/_foreach_clamp_max_native.h>
 #include <ATen/ops/_foreach_clamp_min_native.h>
-#include <ATen/ops/_foreach_copy_native.h>
 #include <ATen/ops/_foreach_clamp_native.h>
+#include <ATen/ops/_foreach_copy_native.h>
 #include <ATen/ops/_foreach_cos_native.h>
 #include <ATen/ops/_foreach_cosh_native.h>
 #include <ATen/ops/_foreach_div_native.h>
