@@ -342,6 +342,22 @@ class triton:
     # this should only be disabled for debugging/testing
     autotune_pointwise = True
 
+    # dump the raw kernel data for model-based autotuner training
+    dump_autotuner_data = (
+        os.environ.get("TORCHINDUCTOR_DUMP_AUTOTUNER_DATA", "0") == "1"
+    )
+
+    # dump the configs explored for model-based autotuner training
+    dump_autotuner_config = (
+        os.environ.get("TORCHINDUCTOR_DUMP_AUTOTUNER_CONFIG", "0") == "1"
+    )
+
+    # The path to the autotuner model file
+    autotuner_path = os.environ.get("TORCHINDUCTOR_AUTOTUNER_PATH", None)
+
+    # The exploration space of the autotuner model
+    autotuner_space = int(os.environ.get("TORCHINDUCTOR_AUTOTUNER_SPACE", "0"))
+
     # max autotune gemm with cublasLt
     autotune_cublasLt = True
 
