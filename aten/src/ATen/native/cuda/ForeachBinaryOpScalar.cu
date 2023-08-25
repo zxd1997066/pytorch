@@ -331,15 +331,15 @@ at::native::detail::ClampLimits get_clamp_kind(
 
 std::vector<at::Tensor> foreach_tensor_clamp_scalar_kernel_cuda(
     TensorList self,
-    const optional<Scalar>& min,
-    const optional<Scalar>& max) {
+    const optional<Scalar>& lower,
+    const optional<Scalar>& upper) {
   check_foreach_api_restrictions(self);
   if (!can_use_fast_route(
           ArrayRef<TensorList>{self}, ArrayRef<Scalar>{}, true)) {
-    return foreach_tensor_clamp_scalar_kernel_slow(self, min, max);
+    return foreach_tensor_clamp_scalar_kernel_slow(self, lower, upper);
   }
   TORCH_CHECK(
-      min.has_value() || max.has_value(),
+      lower.has_value() || upper.has_value(),
       "Either `min` or `max` must be specified");
   std::vector<Tensor> result;
   result.reserve(self.size());
@@ -361,26 +361,26 @@ std::vector<at::Tensor> foreach_tensor_clamp_scalar_kernel_cuda(
                 /* depth */ 2,
                 /* r_args_depth */ 1,
                 /* res_arg_index */ 1>(),
-            min.has_value() ? min.value().to<opmath_t>()
-                            : max.value().to<opmath_t>(),
-            max.has_value() ? max.value().to<opmath_t>()
-                            : min.value().to<opmath_t>(),
-            get_clamp_kind(min, max));
+            lower.has_value() ? lower.value().to<opmath_t>()
+                              : upper.value().to<opmath_t>(),
+            upper.has_value() ? upper.value().to<opmath_t>()
+                              : lower.value().to<opmath_t>(),
+            get_clamp_kind(lower, upper));
       });
   return tensor_lists[1];
 }
 
 void foreach_tensor_clamp_scalar_kernel_cuda_(
     TensorList self,
-    const optional<Scalar>& min,
-    const optional<Scalar>& max) {
+    const optional<Scalar>& lower,
+    const optional<Scalar>& upper) {
   check_foreach_api_restrictions(self);
   if (!can_use_fast_route(
           ArrayRef<TensorList>{self}, ArrayRef<Scalar>{}, true)) {
-    return foreach_tensor_clamp_scalar_kernel_slow_(self, min, max);
+    return foreach_tensor_clamp_scalar_kernel_slow_(self, lower, upper);
   }
   TORCH_CHECK(
-      min.has_value() || max.has_value(),
+      lower.has_value() || upper.has_value(),
       "Either `min` or `max` must be specified");
   std::vector<std::vector<at::Tensor>> tensor_lists{self.vec()};
   AT_DISPATCH_ALL_TYPES_AND2(
@@ -397,11 +397,11 @@ void foreach_tensor_clamp_scalar_kernel_cuda_(
                 /* depth */ 1,
                 /* r_args_depth */ 1,
                 /* res_arg_index */ 0>(),
-            min.has_value() ? min.value().to<opmath_t>()
-                            : max.value().to<opmath_t>(),
-            max.has_value() ? max.value().to<opmath_t>()
-                            : min.value().to<opmath_t>(),
-            get_clamp_kind(min, max));
+            lower.has_value() ? lower.value().to<opmath_t>()
+                              : upper.value().to<opmath_t>(),
+            upper.has_value() ? upper.value().to<opmath_t>()
+                              : lower.value().to<opmath_t>(),
+            get_clamp_kind(lower, upper));
       });
 }
 } // namespace at::native
