@@ -74,8 +74,13 @@ namespace {
 std::pair<Tensor, Tensor> promoteIndicesAndOffsets(
     const Tensor& indices,
     const Tensor& offsets) {
-  const auto commonType =
-      promoteTypes(offsets.scalar_type(), indices.scalar_type());
+  auto indices_arg = TensorArg(indices, "indices", 1);
+  checkScalarTypes("embedding_bag", indices_arg, {kLong, kInt});
+  auto offsets_arg = TensorArg(offsets, "offsets", 1);
+  checkScalarTypes("embedding_bag", offsets_arg, {kLong, kInt});
+  bool use_long =
+      offsets.scalar_type() == kLong || indices.scalar_type() == kLong;
+  const auto commonType = use_long ? kLong : kInt;
   return {
       indices.scalar_type() == commonType ? indices
                                           : indices.toType(commonType),
@@ -883,7 +888,7 @@ index_select_scale_add(const Tensor &select_indices,
   }
 }
 
-}  // namespace
+} // namespace
 
 void check_arguments(
     const Tensor& weight,
@@ -894,25 +899,35 @@ void check_arguments(
     bool include_last_offset) {
   auto indices_arg = TensorArg(indices, "indices", 1);
   checkScalarTypes("embedding_bag", indices_arg, {kLong, kInt});
+  checkDim("embedding_bag", indices_arg, 1);
   auto offsets_arg = TensorArg(offsets, "offsets", 1);
   checkScalarTypes("embedding_bag", offsets_arg, {kLong, kInt});
+  checkDim("embedding_bag", offsets_arg, 1);
   checkSameType("embedding_bag", indices_arg, offsets_arg);
   auto weight_arg = TensorArg(weight, "weight", 1);
   checkScalarTypes(
       "embedding_bag", weight_arg, {kHalf, kBFloat16, kFloat, kDouble});
+  checkDim("embedding_bag", weight_arg, 2);
 
-  AT_DISPATCH_INDEX_TYPES(offsets.scalar_type(), "_embedding_bag_cpu_impl", [&]() {
-    if (offsets.size(0) > 0) {
+  if (offsets.has_storage() && offsets.data_ptr() != 0) {
+    AT_DISPATCH_INDEX_TYPES(offsets.scalar_type(), "embedding_bag", [&]() {
       index_t offset_0 = offsets.const_data_ptr<index_t>()[0];
-      index_t offset_n = offsets.const_data_ptr<index_t>()[offsets.size(0)-1];
-      TORCH_CHECK(offset_0 == 0, "offsets[0] has to be 0, i.e., the first sequence "
-                                "in the mini-batch has to start from position 0. "
-                                "However, got ", offsets[0]);
-      TORCH_CHECK(offset_n <= indices.size(0), "offsets[-1] can not "
-                  "be greater than input's length ", indices.size(0), " but got offsets[-1] of ",
-                  offset_n);
-    }
-  });
+      index_t offset_n = offsets.const_data_ptr<index_t>()[offsets.numel() - 1];
+      TORCH_CHECK(
+          offset_0 == 0,
+          "offsets[0] has to be 0, i.e., the first sequence "
+          "in the mini-batch has to start from position 0. "
+          "However, got ",
+          offsets[0]);
+      TORCH_CHECK(
+          offset_n <= indices.size(0),
+          "offsets[-1] can not "
+          "be greater than input's length ",
+          indices.size(0),
+          " but got offsets[-1] of ",
+          offset_n);
+    });
+  }
 
   if (per_sample_weights.has_value() && per_sample_weights.value().defined()) {
     TORCH_CHECK(mode == MODE_SUM,
@@ -1191,28 +1206,13 @@ void _embedding_bag_cpu_impl_out(Tensor& output, Tensor& offset2bag,
 // See NOTE [ embedding_bag Native Functions ] in native_functions.yaml for details
 static std::tuple<Tensor, Tensor, Tensor, Tensor> _embedding_bag_cpu_impl(
     const Tensor& weight,
-    const Tensor& indices_,
-    const Tensor& offsets_,
+    const Tensor& indices,
+    const Tensor& offsets,
     const int64_t mode,
     const Tensor& per_sample_weights,
     bool include_last_offset,
     int64_t padding_idx,
     bool requires_grad) {
-  TORCH_CHECK(indices_.dim() == 1 || indices_.dim() == 2,
-      "input has to be a 1D or 2D Tensor, but got Tensor of dimension ",
-      indices_.dim());
-  if (indices_.dim() == 1) {
-    TORCH_CHECK(offsets_.dim() == 1,
-        "offsets has to be a 1D Tensor, but got Tensor of dimension ",
-        offsets_.dim());
-  }
-  TORCH_CHECK(weight.dim() == 2,
-      "weight has to be a 2D Tensor, but got Tensor of dimension ",
-      weight.dim());
-  Tensor indices, offsets;
-  std::tie(indices, offsets) = promoteIndicesAndOffsets(indices_, offsets_);
-  check_arguments(weight, indices, offsets, mode, per_sample_weights, include_last_offset);
-
   Tensor output = at::empty(
       {include_last_offset ? offsets.size(0) - 1 : offsets.size(0),
        weight.sizes()[1]},
@@ -1236,11 +1236,16 @@ static std::tuple<Tensor, Tensor, Tensor, Tensor> _embedding_bag_cpu_impl(
 // embedding_bag wrapper to enforce contiguity in tensors other than `weight`.
 // This is created to save extra `.contiguous()` call in backward.
 // See NOTE [ embedding_bag Native Functions ] in native_functions.yaml for details
-std::tuple<Tensor, Tensor, Tensor, Tensor>
-embedding_bag(const Tensor &weight, const Tensor &indices,
-              const Tensor &offsets, const bool scale_grad_by_freq,
-              const int64_t mode, bool sparse, const c10::optional<Tensor>& per_sample_weights_opt,
-              bool include_last_offset, c10::optional<int64_t> padding_idx_opt) {
+std::tuple<Tensor, Tensor, Tensor, Tensor> embedding_bag(
+    const Tensor& weight,
+    const Tensor& indices_,
+    const Tensor& offsets_,
+    const bool scale_grad_by_freq,
+    const int64_t mode,
+    bool sparse,
+    const c10::optional<Tensor>& per_sample_weights_opt,
+    bool include_last_offset,
+    c10::optional<int64_t> padding_idx_opt) {
   // See [Note: hacky wrapper removal for optional tensor]
   c10::MaybeOwned<Tensor> per_sample_weights_maybe_owned = at::borrow_from_optional_tensor(per_sample_weights_opt);
   const Tensor& per_sample_weights = *per_sample_weights_maybe_owned;
@@ -1255,15 +1260,35 @@ embedding_bag(const Tensor &weight, const Tensor &indices,
       " through ", num_embeddings - 1, ", but got ", padding_idx);
     padding_idx = maybe_wrap_dim(padding_idx, weight.size(0));
   }
+  Tensor indices, offsets;
+  std::tie(indices, offsets) =
+      promoteIndicesAndOffsets(indices_.contiguous(), offsets_.contiguous());
+  check_arguments(
+      weight, indices, offsets, mode, per_sample_weights, include_last_offset);
+
   std::tuple<Tensor, Tensor, Tensor, Tensor> out;
   if (!weight.requires_grad() && !weight._fw_grad(/*level=*/0).defined()) {
     out = at::_embedding_bag_forward_only(
-      weight, indices.contiguous(), offsets.contiguous(), scale_grad_by_freq,
-      mode, sparse, per_sample_weights, include_last_offset, padding_idx);
+        weight,
+        indices.contiguous(),
+        offsets.contiguous(),
+        scale_grad_by_freq,
+        mode,
+        sparse,
+        per_sample_weights,
+        include_last_offset,
+        padding_idx);
   } else {
     out = at::_embedding_bag(
-      weight, indices.contiguous(), offsets.contiguous(), scale_grad_by_freq,
-      mode, sparse, per_sample_weights, include_last_offset, padding_idx);
+        weight,
+        indices.contiguous(),
+        offsets.contiguous(),
+        scale_grad_by_freq,
+        mode,
+        sparse,
+        per_sample_weights,
+        include_last_offset,
+        padding_idx);
   }
   return out;
 };
