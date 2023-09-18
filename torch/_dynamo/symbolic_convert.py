@@ -2041,6 +2041,8 @@ class InstructionTranslator(InstructionTranslatorBase):
                 if k in f_locals
             )
 
+            self.collect_debug_info_from_symbolic_locals(f_locals)
+
             self.init_local_index_guards_hack()
 
             self._freevars_ids = dict()
@@ -2083,6 +2085,16 @@ class InstructionTranslator(InstructionTranslatorBase):
                     )
                 ]
                 self.output.guards.update(index_guards)
+
+    def collect_debug_info_from_symbolic_locals(self, f_locals):
+        # Count number of SymNodeVariable in symbolic_locals where the value is a list/tuple
+        self.output.debug_info.num_symints_from_list_of_integers = 0
+        for key, value in self.symbolic_locals.items():
+            if isinstance(f_locals[key], (list, tuple)):
+                list_vt = value
+                for vt in list_vt:
+                    if isinstance(vt, SymNodeVariable):
+                        self.output.debug_info.num_symints_from_list_of_integers += 1
 
     def run(self):
         super().run()

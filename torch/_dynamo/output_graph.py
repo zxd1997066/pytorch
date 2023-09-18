@@ -221,6 +221,16 @@ class WrapperBackend:
 Scope = Dict[str, object]
 
 
+@dataclass
+class DebugInfo:
+    """
+    Stores debug info that can be used to make decisions like when to skip
+    compiling a compilation frame.
+    """
+
+    num_symints_from_list_of_integers: int = 0
+
+
 class OutputGraph(Checkpointable[OutputGraphState]):
     """
     Wrapper class to hold outputs of InstructionTranslator.  Mainly the
@@ -355,6 +365,8 @@ class OutputGraph(Checkpointable[OutputGraphState]):
         # where inlining of a function changes the global state (because of the
         # presence of torch.no_grad) and there is a graph break.
         self.save_global_state()
+
+        self.debug_info = DebugInfo()
 
     # This gets its own helper function so guards DEBUG logs are more
     # informative
@@ -592,6 +604,14 @@ class OutputGraph(Checkpointable[OutputGraphState]):
 
     def count_calls(self):
         return count_calls(self.graph)
+
+    def count_non_getitem_op_calls(self):
+        c = 0
+        for n in self.graph.nodes:
+            if "call" in n.op:
+                if not (n.op == "call_function" and n.target == operator.getitem):
+                    c += 1
+        return c
 
     def is_empty_graph(self):
         return len(list(self.graph.nodes)) == 0
