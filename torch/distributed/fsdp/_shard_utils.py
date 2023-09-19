@@ -63,32 +63,35 @@ def _gather_state_dict(
     Given a state_dict, this API gathers all the ShardedTensors or DTensors in the state_dict.
     """
     new_state_dict = {}
-    for key, tensor in state_dict.items():
-        if isinstance(tensor, ShardedTensor):
-            output_tensor = _all_gather_sharded_tensor(tensor, pg)
+    for key, value in state_dict.items():
+        if isinstance(value, ShardedTensor):
+            output_tensor = _all_gather_sharded_tensor(value, pg)
             local_shard_device = (
-                tensor.local_shards()[0].tensor.device
-                if tensor.local_shards()
+                value.local_shards()[0].tensor.device
+                if value.local_shards()
                 else torch.device("cpu")
             )
             with SimpleProfiler.profile(SimpleProfiler.Type.H2D):
                 if output_tensor.device != local_shard_device:
-                    tensor = output_tensor.to(local_shard_device)
+                    value = output_tensor.to(local_shard_device)
                 else:
-                    tensor = output_tensor
-        elif isinstance(tensor, DTensor):
-            if tensor.device != tensor.device_mesh.device_type:
-                tensor = tensor.to(tensor.device_mesh.device_type)
+                    value = output_tensor
+        elif isinstance(value, DTensor):
+            if value.device != value.device_mesh.device_type:
+                value = value.to(value.device_mesh.device_type)
             # FSDP all_gather: [Shard(0)] -> [Replicate()]
             # HSDP all_gather: [Replicate(), Shard(0)] -> [Replicate(), Replicate()]
-            placements = list(copy.deepcopy(tensor.placements))
+            placements = list(copy.deepcopy(value.placements))
             placements[-1] = Replicate()
-            tensor = tensor.redistribute(
-                device_mesh=tensor.device_mesh,
+            value = value.redistribute(
+                device_mesh=value.device_mesh,
                 placements=placements,
             )
-            tensor = tensor.to_local()
-        new_state_dict[key] = tensor
+            value = value.to_local()
+        elif isinstance(value, dict):
+            value = _gather_state_dict(value, pg)
+
+        new_state_dict[key] = value
     return new_state_dict
 
 
