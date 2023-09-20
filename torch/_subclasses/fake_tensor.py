@@ -1620,6 +1620,7 @@ class FakeTensorMode(TorchDispatchMode):
                 not isinstance(x, FakeTensor)
                 and type(x) is not torch.Tensor
                 and type(x) is not torch.nn.Parameter
+                and type(x) is not torch.nn.Buffer
             )
 
         return [
