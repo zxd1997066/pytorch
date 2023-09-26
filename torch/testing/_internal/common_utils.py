@@ -934,11 +934,11 @@ def run_tests(argv=UNITTEST_ARGS):
         if not RERUN_DISABLED_TESTS:
             # exitcode of 5 means no tests were found, which happens since some test configs don't
             # run tests from certain files
-            exit(0 if exit_code == 5 else exit_code)
+            sys.exit(0 if exit_code == 5 else exit_code)
         else:
             # Only record the test report and always return a success code when running under rerun
             # disabled tests mode
-            exit(0)
+            sys.exit(0)
     elif TEST_SAVE_XML is not None:
         # import here so that non-CI doesn't need xmlrunner installed
         import xmlrunner  # type: ignore[import]
@@ -1074,6 +1074,11 @@ TEST_Z3 = _check_module_exists('z3')
 
 BUILD_WITH_CAFFE2 = torch.onnx._CAFFE2_ATEN_FALLBACK
 
+def split_if_not_empty(x: str):
+    return x.split(",") if len(x) != 0 else []
+
+NOTEST_CPU = "cpu" in split_if_not_empty(os.getenv('PYTORCH_TESTING_DEVICE_EXCEPT_FOR', ''))
+
 # Python 2.7 doesn't have spawn
 TestEnvironment.def_flag("NO_MULTIPROCESSING_SPAWN", env_var="NO_MULTIPROCESSING_SPAWN")
 TestEnvironment.def_flag("TEST_WITH_ASAN", env_var="PYTORCH_TEST_WITH_ASAN")
@@ -1137,7 +1142,7 @@ TestEnvironment.def_flag("TEST_WITH_TORCHDYNAMO", env_var="PYTORCH_TEST_WITH_DYN
 if TEST_WITH_TORCHDYNAMO:
     import torch._dynamo
     # Do not spend time on helper functions that are called with different inputs
-    torch._dynamo.config.cache_size_limit = 8
+    torch._dynamo.config.accumulated_cache_size_limit = 8
     # TODO: Remove this; this is grandfathered in because we suppressed errors
     # on test suite previously
     torch._dynamo.config.suppress_errors = True
@@ -2245,7 +2250,9 @@ class TestCase(expecttest.TestCase):
     _precision: float = 0
     _rel_tol: float = 0
 
-    _avoid_default_dtype_check: bool = False
+    # Toggles whether to assert that `torch.get_default_dtype()` returns
+    # `torch.float` when `setUp` and `tearDown` are called.
+    _default_dtype_check_enabled: bool = False
 
     # checker to early terminate test suite if unrecoverable failure occurs.
     def _should_stop_test_suite(self):
@@ -2563,7 +2570,7 @@ This message can be suppressed by setting PYTORCH_PRINT_REPRO_ON_FAILURE=0"""
         # decorator to disable the invariant checks.
         torch.sparse.check_sparse_tensor_invariants.enable()
 
-        if not self._avoid_default_dtype_check:
+        if self._default_dtype_check_enabled:
             assert torch.get_default_dtype() == torch.float
 
     def tearDown(self):
@@ -2577,7 +2584,7 @@ This message can be suppressed by setting PYTORCH_PRINT_REPRO_ON_FAILURE=0"""
             else:
                 torch.sparse.check_sparse_tensor_invariants.disable()
 
-        if not self._avoid_default_dtype_check:
+        if self._default_dtype_check_enabled:
             assert torch.get_default_dtype() == torch.float
 
     @staticmethod

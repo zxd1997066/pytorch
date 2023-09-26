@@ -876,4 +876,5 @@ class TestDataParallelDeviceType(TestCase):
 instantiate_device_type_tests(TestDataParallelDeviceType, globals())
 
 if __name__ == '__main__':
+    TestCase._default_dtype_check_enabled = True
     run_tests()

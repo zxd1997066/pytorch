@@ -5332,4 +5332,5 @@ class TestJit(DistributionsTestCase):
 
 
 if __name__ == '__main__' and torch._C.has_lapack:
+    TestCase._default_dtype_check_enabled = True
     run_tests()

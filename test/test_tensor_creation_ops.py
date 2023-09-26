@@ -4032,6 +4032,18 @@ class TestAsArray(TestCase):
                 else:
                     self.assertEqual(data, tensor)
 
+    @onlyCUDA
+    def test_device_without_index(self, device):
+        original = torch.arange(5, device="cuda")
+
+        tensor = torch.asarray(original, device="cuda")
+        # The storage pointers should be equal
+        self.assertEqual(original.data_ptr(), tensor.data_ptr())
+
+        tensor = torch.asarray(original, copy=True, device="cuda")
+        # The storage pointers should not be equal
+        self.assertNotEqual(original.data_ptr(), tensor.data_ptr())
+
 
 instantiate_device_type_tests(TestTensorCreation, globals())
 instantiate_device_type_tests(TestRandomTensorCreation, globals())
@@ -4040,4 +4052,5 @@ instantiate_device_type_tests(TestBufferProtocol, globals(), only_for="cpu")
 instantiate_device_type_tests(TestAsArray, globals())
 
 if __name__ == '__main__':
+    TestCase._default_dtype_check_enabled = True
     run_tests()
