@@ -8660,24 +8660,21 @@ class foreach_lerp_sample_func(foreach_inputs_sample_func):
 
 class foreach_clamp_sample_func(foreach_inputs_sample_func):
 
+    def sample_zero_size_tensor_inputs(self, opinfo, device, dtype, requires_grad, **kwargs):
+        zero_size_foreach_inputs_kwargs = copy.deepcopy(_foreach_inputs_kwargs)
+        input = sample_inputs_foreach(None, device, dtype, NUM_SIZE0_TENSORS, **zero_size_foreach_inputs_kwargs)
+        args = np.random.uniform(size=(2,)).tolist()
+        kwargs = {
+            "disable_fastpath": dtype in integral_types_and(torch.bool),
+        }
+        yield ForeachSampleInput(input, *args, **kwargs)
+
     def __call__(self, opinfo, device, dtype, requires_grad, **kwargs):
         num_input_tensors_specified = "num_input_tensors" in kwargs
         num_input_tensors = kwargs.pop("num_input_tensors") if num_input_tensors_specified else foreach_num_tensors
         assert isinstance(num_input_tensors, list)
         _foreach_inputs_kwargs = {k: kwargs.pop(k, v) for k, v in _foreach_inputs_default_kwargs.items()}
         _foreach_inputs_kwargs["requires_grad"] = requires_grad
-
-        # zero_size tensor
-        if dtype == torch.float32 and (not num_input_tensors_specified) and ("cuda" in device):
-            zero_size_foreach_inputs_kwargs = copy.deepcopy(_foreach_inputs_kwargs)
-            zero_size_foreach_inputs_kwargs["zero_size"] = True
-            input = sample_inputs_foreach(None, device, dtype, NUM_SIZE0_TENSORS, **zero_size_foreach_inputs_kwargs)
-            args = np.random.uniform(size=(2,)).tolist()
-            kwargs = {
-                "zero_size": True,
-                "disable_fastpath": dtype in integral_types_and(torch.bool),
-            }
-            yield SampleInput(input, *args, **kwargs)
 
         for num_tensors, args in product(
             num_input_tensors,
@@ -8692,10 +8689,9 @@ class foreach_clamp_sample_func(foreach_inputs_sample_func):
             input = sample_inputs_foreach(
                 None, device, dtype, num_tensors, **_foreach_inputs_kwargs)
             kwargs = {
-                "zero_size": False,
                 "disable_fastpath": dtype in integral_types_and(torch.bool),
             }
-            yield SampleInput(input, *args, **kwargs)
+            yield ForeachSampleInput(input, *args, **kwargs)
 
 
 class foreach_pointwise_sample_func(foreach_inputs_sample_func):
