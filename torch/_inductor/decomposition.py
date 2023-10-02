@@ -2,7 +2,6 @@ import functools
 import logging
 import math
 import typing
-from typing import Optional
 
 import torch
 import torch._decomp as decomp
@@ -17,6 +16,7 @@ from torch._decomp.decompositions import (
     _grid_sampler_2d as decomp_grid_sampler_2d,
     pw_cast_for_opmath,
 )
+from typing import Optional
 from torch._decomp.decompositions_for_rng import extra_random_decomps
 from torch._higher_order_ops.out_dtype import out_dtype
 from torch._prims_common import type_to_dtype
@@ -110,6 +110,18 @@ def clamp(x, min=None, max=None):
     if max is not None:
         x = x.clamp_max(max)
     return x
+
+
+@register_decomposition([aten.full_permuted])
+def full_permuted(size, permutation, fill_value, **kwargs):
+    if permutation == list(range(len(size))):
+        return aten.full(size, fill_value, **kwargs)
+
+    dtype = kwargs.get("dtype")
+    if dtype is None:
+        kwargs["dtype"] = type_to_dtype(type(fill_value))
+        return aten.full(size, permutation, fill_value, **kwargs)
+    return NotImplemented
 
 
 @register_decomposition([aten.full])
@@ -309,6 +321,20 @@ def view_copy_dtype(self, dtype):
     return self.to(dtype).clone()
 
 
+def get_like_permutation(tensor, memory_format):
+    if memory_format in (
+        torch.preserve_format,
+        None,
+    ) and utils.is_non_overlapping_and_dense(tensor):
+        return utils.compute_elementwise_output_logical_to_physical_perm(tensor)
+    elif memory_format == torch.channels_last:
+        return [0, 2, 3, 1]
+    elif memory_format == torch.channels_last_3d:
+        return [0, 2, 3, 4, 1]
+    else:
+        return list(range(tensor.ndim))
+
+
 def get_like_layout(
     tensor: torch.Tensor, memory_format: Optional[torch.memory_format]
 ) -> torch.memory_format:
@@ -351,14 +377,16 @@ def full_like(
     requires_grad=False,
     memory_format=torch.preserve_format,
 ):
-    return torch.full(
+    permutation = get_like_permutation(self, memory_format)
+    return torch.full_permuted(
         [*self.size()],
+        permutation,
         fill_value,
         dtype=dtype or self.dtype,
         layout=layout or self.layout,
         device=device or self.device,
         requires_grad=requires_grad,
-    ).to(memory_format=get_like_layout(self, memory_format))
+    )
 
 
 @register_decomposition(aten.randint_like.default)
@@ -521,9 +549,9 @@ def _foreach_lerp_scalar(start_tensors, end_tensors, weight):
 def miopen_batch_norm(
     input: torch.Tensor,
     weight: torch.Tensor,
-    bias: typing.Optional[torch.Tensor],
-    running_mean: typing.Optional[torch.Tensor],
-    running_var: typing.Optional[torch.Tensor],
+    bias: Optional[torch.Tensor],
+    running_mean: Optional[torch.Tensor],
+    running_var: Optional[torch.Tensor],
     training: bool,
     exponential_average_factor: float,
     epsilon: float,
