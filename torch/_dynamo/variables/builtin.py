@@ -1239,7 +1239,17 @@ class BuiltinVariable(VariableTracker):
                     ):
                         return getattr_var
 
+            elif name_var.is_python_constant() and isinstance(
+                val, variables.ConstantVariable
+            ) and tx.export:
+                return obj.call_method(tx, "__setattr__", [name_var, val], {})
+
             obj.convert_to_unspecialized(tx)
+        elif isinstance(obj, variables.dicts.HFPretrainedConfigVariable):
+            if name_var.is_python_constant() and isinstance(
+                val, variables.ConstantVariable
+            ):
+                return obj.var_setattr(tx, name_var, val)
 
     def call_delattr(self, tx, obj: VariableTracker, name_var: VariableTracker):
         return self.call_setattr(tx, obj, name_var, variables.DeletedVariable())

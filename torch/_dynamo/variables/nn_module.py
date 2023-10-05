@@ -74,12 +74,27 @@ def record_nn_module_stack(module_key: str, source, tx, mod: torch.nn.Module):
 
 
 class NNModuleVariable(VariableTracker):
-    _nonvar_fields = ["module_type", "module_key"]
+    _nonvar_fields = [
+        "module_type",
+        "module_key",
+        "constant_attribute_tracker_EXPORT_ONLY",
+    ]
 
-    def __init__(self, module_type: type, module_key: str, **kwargs):
+    def __init__(
+        self,
+        module_type: type,
+        module_key: str,
+        constant_attribute_tracker_EXPORT_ONLY=None,
+        **kwargs,
+    ):
         super().__init__(**kwargs)
         self.module_type = module_type
         self.module_key = module_key
+        self.constant_attribute_tracker_EXPORT_ONLY = (
+            constant_attribute_tracker_EXPORT_ONLY
+            if constant_attribute_tracker_EXPORT_ONLY is not None
+            else {}
+        )
         assert self.source
 
     def python_type(self):
@@ -169,6 +184,11 @@ class NNModuleVariable(VariableTracker):
         options = VariableTracker.propagate(self)
         guards = options.get("guards", set())
 
+        if tx.export and name in self.constant_attribute_tracker_EXPORT_ONLY:
+            return variables.ConstantVariable.create(
+                self.constant_attribute_tracker_EXPORT_ONLY[name], **options
+            )
+
         if self.source:
             source = AttrSource(self.source, name)
             options["source"] = source
@@ -236,6 +256,8 @@ class NNModuleVariable(VariableTracker):
             elif is_safe_constant(subobj) or istensor(subobj):
                 # Support possibly common cases of class members
                 return VariableBuilder(tx, NNModuleSource(source))(subobj)
+            elif type(subobj) == types.GetSetDescriptorType:
+                return variables.GetAttrVariable(self, name, **options)
             else:
                 unimplemented(f"class property {typestr(base)} {typestr(subobj)}")
 
@@ -634,6 +656,30 @@ class NNModuleVariable(VariableTracker):
             )
         ):
             return generic_call_method_helper(name)
+        elif name == "__setattr__":
+            # Only allow setattr on constant attributes
+            assert len(args) == 2
+            assert isinstance(args[1], variables.ConstantVariable)
+            assert tx.export
+
+            fn = getattr(module, name).__func__
+            # we simulate only for default NNModule setattr, otherwise
+            # it is hard to know exact behaviour of setattr
+            if fn == torch.nn.Module.__setattr__:
+                # In export, we don't actually want to setattr on the module, instead
+                # track the mutation value and use that for future getattr calls.
+                self.constant_attribute_tracker_EXPORT_ONLY[args[0].value] = args[
+                    1
+                ].value
+                return variables.ConstantVariable(None)
+            # If not default setattr, we simulate it
+            else:
+                source = None if self.source is None else AttrSource(self.source, name)
+                return tx.inline_user_function_return(
+                    variables.UserFunctionVariable(fn, source=source, **options),
+                    [self] + list(args),
+                    kwargs,
+                )
         else:
             return super().call_method(tx, name, args, kwargs)
 
