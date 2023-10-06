@@ -1265,12 +1265,12 @@ class TestTensorCreation(TestCase):
         self.assertEqual(complex(torch.tensor(1.5j)), 1.5j)
 
         for tensor in not_ok:
-            self.assertRaises(ValueError, lambda: int(tensor))
-            self.assertRaises(ValueError, lambda: float(tensor))
-            self.assertRaises(ValueError, lambda: complex(tensor))
+            self.assertRaises(TypeError, lambda: int(tensor))
+            self.assertRaises(TypeError, lambda: float(tensor))
+            self.assertRaises(TypeError, lambda: complex(tensor))
 
-        self.assertRaises(RuntimeError, lambda: float(torch.tensor(1.5j)))
-        self.assertRaises(RuntimeError, lambda: int(torch.tensor(1.5j)))
+        self.assertRaises(ValueError, lambda: float(torch.tensor(1.5j)))
+        self.assertRaises(ValueError, lambda: int(torch.tensor(1.5j)))
 
     # TODO: update to work on CUDA, too?
     @onlyCPU
@@ -3454,7 +3454,7 @@ class TestRandomTensorCreation(TestCase):
                                          2**53 + 2)):
             res = torch.empty(0, dtype=dtype, device=device)
             torch.randperm(small_n, out=res)  # No exception expected
-            self.assertRaises(RuntimeError, lambda: torch.randperm(large_n, out=res, device=device))
+            self.assertRaises(ValueError, lambda: torch.randperm(large_n, out=res, device=device))
 
         # Test non-contiguous tensors
         for n in (4, 5, 6, 10, 20):
