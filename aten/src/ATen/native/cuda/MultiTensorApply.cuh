@@ -101,6 +101,7 @@ __global__ void multi_tensor_apply_kernel(
     T tensorListMeta,
     U callable,
     [[maybe_unused]] ArgTypes... args) {
+  ((void)args, ...);
   // Hand the chunk information to the user-supplied functor to process however
   // it likes.
   callable(kChunkSize, tensorListMeta, args...);
