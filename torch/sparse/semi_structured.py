@@ -213,6 +213,26 @@ class SparseSemiStructuredTensor(torch.Tensor):
         self.sparse_tensor_cutlass = sparse_tensor_cutlass
         self.meta_tensor_cutlass = meta_tensor_cutlass
         self.transposed = transposed
+        self.original_shape = original_shape
+
+    def __tensor_flatten__(self):
+        return ['compressed_tensor_cusparselt', 'sparse_tensor_cutlass'], (self.original_shape, self.transposed, self.meta_tensor_cutlass)
+
+    @staticmethod
+    def __tensor_unflatten__(inner_tensors, meta):
+        original_shape, transposed, meta_tensor_cutlass = meta
+        assert len(inner_tensors) == 2
+        compressed_tensor_cusparselt = inner_tensors['compressed_tensor_cusparselt']
+        sparse_tensor_cutlass = inner_tensors['sparse_tensor_cutlass']
+        return SparseSemiStructuredTensor(
+            None,
+            original_shape=original_shape,
+            compressed_tensor_cusparselt=compressed_tensor_cusparselt,
+            sparse_tensor_cutlass=sparse_tensor_cutlass,
+            meta_tensor_cutlass=meta_tensor_cutlass,
+            transposed=transposed,
+        )
+
 
     def __repr__(self) -> str:  # type: ignore[override]
         """Return string representation of SparseSemiStructuredTensor
@@ -254,7 +274,7 @@ class SparseSemiStructuredTensor(torch.Tensor):
         # Since this code runs below autograd, a detach corresponds to only returning a new object
         if func is torch.ops.aten.detach.default:
             return SparseSemiStructuredTensor(
-                args[0].original_tensor,
+                None,  #args[0].original_tensor,
                 original_shape=args[0].shape,
                 compressed_tensor_cusparselt=args[0].compressed_tensor_cusparselt,
                 sparse_tensor_cutlass=args[0].sparse_tensor_cutlass,
@@ -298,7 +318,7 @@ class SparseSemiStructuredTensor(torch.Tensor):
                 else:
                     return torch._cslt_sparse_mm(
                         input_B.compressed_tensor_cusparselt, input_A.T, bias  # type: ignore[arg-type]
-                    ).t()
+                    ).t().contiguous()
 
         # handle mm
         if func is torch.ops.aten.mm.default:
@@ -309,7 +329,7 @@ class SparseSemiStructuredTensor(torch.Tensor):
                     assert input_A.sparse_tensor_cutlass is not None and input_A.meta_tensor_cutlass is not None
                     return torch._sparse_semi_structured_linear(
                         input_B.t(), input_A.sparse_tensor_cutlass, input_A.meta_tensor_cutlass
-                    ).t()
+                    ).t().contiguous()
                 else:
                     return torch._cslt_sparse_mm(
                         input_A.compressed_tensor_cusparselt, input_B, None  # type: ignore[arg-type]
@@ -319,9 +339,9 @@ class SparseSemiStructuredTensor(torch.Tensor):
                     assert input_B.sparse_tensor_cutlass is not None and input_B.meta_tensor_cutlass is not None
                     return torch._sparse_semi_structured_linear(
                         input_A, input_B.sparse_tensor_cutlass, input_B.meta_tensor_cutlass
-                    )
+                    ).contiguous()
                 else:
-                    return torch._cslt_sparse_mm(input_B.compressed_tensor_cusparselt, input_A.T, None).t()  # type: ignore[arg-type]
+                    return torch._cslt_sparse_mm(input_B.compressed_tensor_cusparselt, input_A.T, None).t().contiguous()  # type: ignore[arg-type]
 
         # When torch is run with inference mode, pytorch does not decompose torch.ops.aten.linear into a .t() and addmm(),
         # so we must match the aten.linear op. In this case, we need to explicitly handle collapsing to 2d matmul
@@ -337,13 +357,13 @@ class SparseSemiStructuredTensor(torch.Tensor):
                         weight.sparse_tensor_cutlass,
                         weight.meta_tensor_cutlass,
                         bias=bias
-                    )
+                    ).contiguous()
                 else:
                     return torch._cslt_sparse_mm(
                         weight.compressed_tensor_cusparselt,  # type: ignore[arg-type]
                         input_tensor.view(-1, shape[-1]).t(),
                         bias
-                    ).t().view(*shape[:-1], -1)
+                    ).t().view(*shape[:-1], -1).contiguous()
 
         # handle values
         if func is torch.ops.aten.values.default:
