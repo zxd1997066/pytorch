@@ -500,7 +500,7 @@ class GraphLowering(torch.fx.Interpreter):
 
         register(node_output)
 
-    def mark_buffer_mutated(self, name: str):
+    def mark_buffer_mutated(self, name: str, skip_user: Optional[ir.StorageBox] = None):
         """
         When a buffer is mutated we need to make sure all the reads to
         the old version are realized before the mutation happens.
@@ -512,6 +512,18 @@ class GraphLowering(torch.fx.Interpreter):
             return
 
         for user in self.name_to_users[name]:
+
+            def can_skip(user, skip_user):
+                if isinstance(user, ir.TensorBox):
+                    return can_skip(user.data, skip_user)
+                elif isinstance(user, ir.BaseView):
+                    return can_skip(user.data, skip_user)
+                elif isinstance(user, ir.StorageBox):
+                    return user == skip_user
+                return False
+
+            if can_skip(user, skip_user):
+                continue
             user.realize()
 
     def add_tensor_constant(self, data, name=None):
