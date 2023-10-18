@@ -34,7 +34,8 @@ from torch.testing._internal.common_utils import (
     TEST_WITH_ROCM, IS_WINDOWS, IS_MACOS, TEST_SCIPY,
     torch_to_numpy_dtype_dict, TEST_WITH_ASAN,
     GRADCHECK_NONDET_TOL, freeze_rng_state, slowTest, TEST_WITH_SLOW,
-    TEST_WITH_TORCHINDUCTOR
+    TEST_WITH_TORCHINDUCTOR,
+    skipIfTorchDynamo,
 )
 
 import torch._refs as refs  # noqa: F401
@@ -10578,6 +10579,7 @@ op_db: List[OpInfo] = [
                             'TestNNCOpInfo',
                             'test_nnc_correctness',
                             dtypes=(torch.bool,)),
+               DecorateInfo(skipIfTorchDynamo(), "TestCommon", "test_out_warning"),
            )),
     UnaryUfuncInfo('positive',
                    ref=np.positive,
@@ -19141,6 +19143,7 @@ python_ref_db = [
             DecorateInfo(unittest.expectedFailure, 'TestMathBits', 'test_neg_view'),
             DecorateInfo(unittest.expectedFailure, 'TestMathBits', 'test_conj_view'),
             DecorateInfo(unittest.expectedFailure, 'TestMathBits', 'test_neg_conj_view'),
+            DecorateInfo(skipIfTorchDynamo(), 'TestCommon', 'test_out_warning'),
         ),
     ),
     PythonRefInfo(
@@ -20161,6 +20164,7 @@ python_ref_db = [
             DecorateInfo(
                 unittest.expectedFailure, 'TestCommon', 'test_python_ref_executor', device_type="cuda"
             ),
+            DecorateInfo(skipIfTorchDynamo(), 'TestCommon', 'test_out_warning'),
         ),
     ),
     PythonRefInfo(
@@ -20727,6 +20731,9 @@ python_ref_db = [
     PythonRefInfo(
         "_refs.clamp",
         torch_opinfo_name="clamp",
+        skips=(
+            DecorateInfo(skipIfTorchDynamo(), 'TestCommon', 'test_out_warning'),
+        ),
     ),
     PythonRefInfo(
         "_refs.nn.functional.triplet_margin_loss",
