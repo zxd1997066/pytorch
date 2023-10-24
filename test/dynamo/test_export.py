@@ -3240,37 +3240,42 @@ def forward(self, x):
         x = torch.randn([3, 4])
 
         def test_symbool_guards(
-            f, size_tests, exp_graph, exp_guard_code, exp_shape_env_guards
+            f,
+            size_tests,
+            exp_graph,
+            exp_guard_code,
+            share_shape_env,
+            exp_shape_env_guards,
         ):
-            shape_env = ShapeEnv()
-            with fake_tensor.FakeTensorMode(
-                shape_env=shape_env,
-            ) as fake_mode:
+            fake_mode = fake_tensor.FakeTensorMode(shape_env=ShapeEnv())
+            for i, size in enumerate(size_tests):
+                if not share_shape_env:
+                    fake_mode = fake_tensor.FakeTensorMode(shape_env=ShapeEnv())
+
                 fake_x = fake_mode.from_tensor(
                     x, dynamic_dims=[DimDynamic.DYNAMIC for _ in range(x.dim())]
                 )
-                for i, size in enumerate(size_tests):
-                    pred = fake_x.size(0) == size
-                    gm, guards = torch._dynamo.export(f)(pred, x)
-                    actual = normalize_gm(gm.print_readable(print_output=False))
-                    self.assertExpectedInline(actual, exp_graph[i])
-                    dynamo_shape_env_guards = [
-                        guard
-                        for guard in guards
-                        if guard.guard_types is not None
-                        and "SHAPE_ENV" in guard.guard_types
-                    ]
-                    self.assertEqual(len(dynamo_shape_env_guards), 1)
-                    guard_code_on_predicate = [
-                        code
-                        for code in dynamo_shape_env_guards[0].code_list
-                        if "L['pred']" in code
-                    ]
-                    self.assertEqual(guard_code_on_predicate, exp_guard_code[i])
-                    outter_shape_env_guards = [
-                        str(guard.expr) for guard in shape_env.guards
-                    ]
-                    self.assertEqual(outter_shape_env_guards, exp_shape_env_guards[i])
+                pred = fake_x.size(0) == size
+                gm, guards = torch._dynamo.export(f)(pred, x)
+                actual = normalize_gm(gm.print_readable(print_output=False))
+                self.assertExpectedInline(actual, exp_graph[i])
+                dynamo_shape_env_guards = [
+                    guard
+                    for guard in guards
+                    if guard.guard_types is not None
+                    and "SHAPE_ENV" in guard.guard_types
+                ]
+                self.assertEqual(len(dynamo_shape_env_guards), 1)
+                guard_code_on_predicate = [
+                    code
+                    for code in dynamo_shape_env_guards[0].code_list
+                    if "L['pred']" in code
+                ]
+                self.assertEqual(guard_code_on_predicate, exp_guard_code[i])
+                outer_shape_env_guards = [
+                    str(guard.expr) for guard in fake_mode.shape_env.guards
+                ]
+                self.assertEqual(outer_shape_env_guards, exp_shape_env_guards[i])
 
         true_graph = """\
 class GraphModule(torch.nn.Module):
@@ -3286,18 +3291,22 @@ class GraphModule(torch.nn.Module):
         cos = arg1.cos();  arg1 = None
         return pytree.tree_unflatten([cos], self._out_spec)
 """
-        true_guard_code = ["cast_symbool_to_symint_guardless(L['pred']) == 1"]
-        false_guard_code = [
-            "Ne(cast_symbool_to_symint_guardless(L['pred']), 1)",
-            "-9223372036854775808 <= cast_symbool_to_symint_guardless(L['pred'])",
-        ]
+        true_guard_code = ["ITE_WITH_HINT(L['pred'], 1, 0) == 1"]
+        false_guard_code = ["Ne(ITE_WITH_HINT(L['pred'], 1, 0), 1)"]
         test_symbool_guards(
             f,
             [3, 3, 4, 5],
             [true_graph, true_graph, false_graph, false_graph],
             [true_guard_code, true_guard_code, false_guard_code, false_guard_code],
-            # Outter shape env should have no guards in it because we never specialize on the outter symbool.
-            [[], [], [], []],
+            share_shape_env=False,
+            # The shape_env is different in each iteration. Each shape_env gets a single guard installed.
+            # TODO(yidi): simplifiy the guards to Ea(s0, 3), Ne(s0, 4), Ne(s0, 5)
+            exp_shape_env_guards=[
+                ["Eq(Piecewise((1, Eq(s0, 3)), (0, True)), 1)"],
+                ["Eq(Piecewise((1, Eq(s0, 3)), (0, True)), 1)"],
+                ["Ne(Piecewise((1, Eq(s0, 4)), (0, True)), 1)"],
+                ["Ne(Piecewise((1, Eq(s0, 5)), (0, True)), 1)"],
+            ],
         )
 
     def test_invalid_input_global(self) -> None:

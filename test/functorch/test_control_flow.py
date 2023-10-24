@@ -1285,9 +1285,10 @@ class TestControlFlowTraced(TestCase):
 def forward(self, x_1):
     sym_size = torch.ops.aten.sym_size(x_1, 0)
     eq = sym_size == 4;  sym_size = None
+    sym_ite = torch.sym_ite(eq, 1, 0);  eq = None
     true_graph_0 = self.true_graph_0
     false_graph_0 = self.false_graph_0
-    conditional = torch.ops.higher_order.cond(eq, true_graph_0, false_graph_0, [x_1]);  eq = true_graph_0 = false_graph_0 = x_1 = None
+    conditional = torch.ops.higher_order.cond(sym_ite, true_graph_0, false_graph_0, [x_1]);  sym_ite = true_graph_0 = false_graph_0 = x_1 = None
     return conditional""")  # noqa: B950
 
         # We expect the traced graph module to work even if input size changes.
@@ -1556,9 +1557,10 @@ def forward(self, arg0_1, arg1_1):
 def forward(self, x_1):
     sym_size = torch.ops.aten.sym_size(x_1, 0)
     eq = sym_size == 4;  sym_size = None
+    sym_ite = torch.sym_ite(eq, 1, 0);  eq = None
     true_graph_0 = self.true_graph_0
     false_graph_0 = self.false_graph_0
-    conditional = torch.ops.higher_order.cond(eq, true_graph_0, false_graph_0, [x_1]);  eq = true_graph_0 = false_graph_0 = x_1 = None
+    conditional = torch.ops.higher_order.cond(sym_ite, true_graph_0, false_graph_0, [x_1]);  sym_ite = true_graph_0 = false_graph_0 = x_1 = None
     return conditional""")  # noqa: B950
 
             self.assertExpectedInline(gm.true_graph_0.code.strip(), """\

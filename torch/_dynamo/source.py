@@ -247,13 +247,37 @@ class ConvertIntSource(ChainedSource):
         assert self.base is not None
 
     def reconstruct(self, codegen):
-        return self.base.reconstruct(codegen)
+        # Note: reconstruct(codegen) is used when dynamo generates the opimized python byte code.
+        # To re-use all the infra we've built for SymInt, when dynamo sees a SymBool inputs,
+        # we make dynamo create graphs that take SymInt inputs instead.
+        #
+        # We need to install a new function to disable dynamo from tracing into torch.sym_ite
+        # while keep original function unchanged.
+        import torch
+
+        fn_name = "___sym_ite_with_dynamo_disabled"
+        codegen.tx.output.install_global(fn_name, torch._dynamo.disable(torch.sym_ite))
+        return [
+            *codegen.load_function_name(fn_name, True),
+            *self.base.reconstruct(codegen),
+            codegen.create_load_const(1),
+            codegen.create_load_const(0),
+            *create_call_function(3, False),
+        ]
 
     def guard_source(self):
         return self.base.guard_source()
 
     def name(self):
-        return f"cast_symbool_to_symint_guardless({self.base.name()})"
+        # Note: When creating a guard, we use the `name()` function. Since we simulate SymBool inputs with SymInts in Dynamo,
+        # the guards produced are for the SymInts. However, these guards must be checked against the outer SymBool.
+        # To accomplish this, we cast the outer SymBool to an integer before executing the guard expression
+        # generated for Dynamo's SymInt.
+
+        # Note: ITE_WITH_HINT doesn't install guard in the outer shape_env of SymBool input because we
+        # have to make sure all the guards pass and the cached code will be executed. Otherwise, we will
+        # accidently specialize the outer shape_env.
+        return f"ITE_WITH_HINT({self.base.name()}, 1, 0)"
 
 
 @dataclasses.dataclass(frozen=True)

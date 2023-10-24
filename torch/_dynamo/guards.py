@@ -225,6 +225,12 @@ class GuardBuilder(GuardBuilderBase):
         # tensor match guards make sure we actually have tensors)
         self.shape_env_code: List[GuardCodeList] = []
 
+        # exprs are appended by SHAPE_ENV guard. One usage is to propagate shape guards accumulated
+        # during dynamo tracing in dynamo's shape_env to outer shape_env only after guard check passes.
+        # This can keep the consistency between passing a SymBool inputs to a dynamo compiled function
+        # vs non-compiled version.
+        self.shape_env_propagation_exprs: List[str] = []
+
         # [Note - On Eager Tensor Guards]
         # Most of the time, we generate Python code in a guard to directly
         # check various properties.  However, tensors are a bit special;
@@ -658,6 +664,10 @@ class GuardBuilder(GuardBuilderBase):
         for shape_guard in guards:
             self._produce_guard_code(guard, [shape_guard], shape_env=True)
 
+        # Propagate immediately to reflect all the specialization we've done during tracing
+        for code in self.shape_env_propagation_exprs:
+            eval(code, self.scope, SYMPY_INTERP)
+
     def TENSOR_MATCH(self, guard: Guard, value=None):
         if guard.is_nn_module():
             self.ID_MATCH(guard)
@@ -778,6 +788,11 @@ class GuardBuilder(GuardBuilderBase):
 
         if shape_env:
             self.shape_env_code.append(GuardCodeList(code_list, guard))
+            for code in code_list:
+                if "ITE_WITH_HINT" in code:
+                    self.shape_env_propagation_exprs.append(
+                        "bool(" + code.replace("ITE_WITH_HINT", "SYM_ITE") + ")"
+                    )
         else:
             self.code.append(GuardCodeList(code_list, guard))
 
@@ -1158,7 +1173,10 @@ class CheckFunctionManager:
 
         unique_code_parts = list(unique(code_parts))
         make_guard_fn_args = ", ".join(closure_vars.keys())
-        guard_body, pycode = build_guard_function(unique_code_parts, make_guard_fn_args)
+
+        guard_body, pycode = build_guard_function(
+            unique_code_parts, make_guard_fn_args, builder.shape_env_propagation_exprs
+        )
 
         if os.environ.get("TORCHDYNAMO_PRINT_GUARDS", None) == "1":
             print("GUARDS\n", guard_body)
@@ -1172,6 +1190,7 @@ class CheckFunctionManager:
 
         out: Dict[str, Any] = dict()
         exec(pycode, builder.scope, out)
+
         guard_fn = out["___make_guard_fn"](*closure_vars.values())
         guard_fn.closure_vars = closure_vars
         # TODO(whc) maybe '.code_parts' was only kept around for the guard callback? so we don't need both
@@ -1211,7 +1230,9 @@ class CheckFunctionManager:
         return None
 
 
-def build_guard_function(code_parts, closure_args) -> Tuple[str, str]:
+def build_guard_function(
+    code_parts, closure_args, shape_env_propagation_exprs=None
+) -> Tuple[str, str]:
     from torch._inductor.utils import IndentedBuffer
 
     if HAS_UNPARSE_FUNCTIONS:
@@ -1235,6 +1256,16 @@ def build_guard_function(code_parts, closure_args) -> Tuple[str, str]:
         guard_body.writeline(f"if not ({expr}):")
         with guard_body.indent():
             guard_body.writeline("return False")
+
+    # Additional expressions when guard passes. This is needed
+    # because we want to propagate the shape_env guards to outer shape_env only
+    # when the guard check passes.
+    # The alternatives such as adding a guard_pass_fn hook or a wrapper function cause overhead
+    # every time the guard passes. We want to avoid it by moving the logic to generaged code
+    # since in most cases additional_exprs will be empty.
+    if shape_env_propagation_exprs is not None:
+        for expr in shape_env_propagation_exprs:
+            guard_body.writeline(expr)
 
     # Wrap the inner body into the actual guard function.
     guard = IndentedBuffer()
