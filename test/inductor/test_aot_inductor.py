@@ -84,6 +84,11 @@ class AOTInductorModelRunner:
 
             def optimized(*args):
                 flat_inputs = fx_pytree.tree_flatten_spec((*args, {}), in_spec)
+                # For scalar inputs, we need to wrap them into tensors
+                flat_inputs = [
+                    inp if isinstance(inp, torch.Tensor) else torch.tensor(inp)
+                    for inp in flat_inputs
+                ]
                 flat_outputs = module.run(flat_inputs)
                 return pytree.tree_unflatten(flat_outputs, out_spec)
 
@@ -103,6 +108,11 @@ class AOTInductorModelRunner:
 
             def optimized(*args):
                 flat_inputs = fx_pytree.tree_flatten_spec((*args, {}), in_spec)
+                # For scalar inputs, we need to wrap them into tensors
+                flat_inputs = [
+                    inp if isinstance(inp, torch.Tensor) else torch.tensor(inp)
+                    for inp in flat_inputs
+                ]
                 flat_outputs = module.run(flat_inputs)
                 return pytree.tree_unflatten(flat_outputs, out_spec)
 
@@ -951,6 +961,21 @@ class AOTInductorTestsTemplate:
         example_inputs = (torch.randn(4, 4, 4, 4).to(self.device),)
         self.check_model(Model(), example_inputs)
 
+    def test_arange_with_start(self):
+        class Model(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.embedding = torch.nn.Embedding(20, 3)
+
+            def forward(self, x, start):
+                a = torch.arange(start, start + 10, device=x.device)
+                b = self.embedding(a)
+                c = b + x
+                return c
+
+        example_inputs = (torch.randn(10, 3).to(self.device), 0)
+        self.check_model(Model(), example_inputs)
+
 
 class AOTInductorTestABICompatibleCpu(TestCase):
     device = "cpu"
@@ -966,6 +991,7 @@ copy_tests(
     # test_failures, xfail by default, set is_skip=True to skip
     {
         "test_addmm_multiple_dynamic": TestFailure(("abi_compatible_cpu",)),
+        "test_arange_with_start": TestFailure(("abi_compatible_cpu",)),
         "test_bmm_multiple_dynamic": TestFailure(("abi_compatible_cpu",)),
         "test_dynamic_cat": TestFailure(("abi_compatible_cpu",)),
         "test_dynamic_smem_above_default_limit": TestFailure(("abi_compatible_cpu",)),
@@ -996,6 +1022,7 @@ copy_tests(
     "abi_compatible_cuda",
     # test_failures, xfail by default, set is_skip=True to skip
     {
+        "test_arange_with_start": TestFailure(("abi_compatible_cuda",)),
         "test_dup_unbacked_sym_decl": TestFailure(("abi_compatible_cuda",)),
         "test_normal_functional": TestFailure(("abi_compatible_cuda",)),
     },

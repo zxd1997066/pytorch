@@ -1420,8 +1420,8 @@ class CppWrapperCodeGen(WrapperCodeGen):
 
         with self.prefix.indent():
             for idx, (name, inp) in enumerate(V.graph.graph_inputs.items()):
-                assert not isinstance(
-                    inp, sympy.Expr
+                assert (
+                    not isinstance(inp, sympy.Expr) or inp.is_number
                 ), f"input {name=} cannot be symbolic"
                 self.write_input_output_info("inputs_info_", idx, name)
 
