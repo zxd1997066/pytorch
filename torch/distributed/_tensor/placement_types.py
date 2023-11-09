@@ -256,6 +256,26 @@ class Shard(Placement):
             result = self._unpad_tensor(result, full_pad_size)
         return result
 
+    def _replicate_to_shard(
+        self,
+        local_tensor: torch.Tensor,
+        mesh: DeviceMesh,
+        mesh_dim: int,
+        shard_index: int,
+    ) -> torch.Tensor:
+        """
+        transform from replicated tensor to a sharded tensor on
+        the current rank
+        """
+        num_chunks = mesh.size(dim=mesh_dim)
+        shards, _ = self._split_tensor(
+            local_tensor,
+            num_chunks,
+            with_padding=False,
+            contiguous=False,
+        )
+        return shards[shard_index].clone()
+
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, Shard):
             return False
@@ -316,7 +336,7 @@ class Replicate(Placement):
 
 
 class _Partial(Placement):
-    # This is a default partial placement with element-wise reduce op
+    # This is a default _Partial placement with element-wise reduce op
     # when doing reduction it follows the contract of `_to_replicate`
     # and `_to_shard` to do the reduction and convert the local tensor
     # to the corresponding state (replicate or shard)
@@ -344,6 +364,20 @@ class _Partial(Placement):
         # by default call reduce_shard_tensor of the shard_spec.
         shard_spec = cast(Shard, shard_spec)
         return shard_spec._reduce_shard_tensor(tensor, mesh, self.reduce_op, mesh_dim)
+
+    def _replicate_to_partial(
+        self, tensor: torch.Tensor, mesh: DeviceMesh, mesh_dim: int
+    ) -> torch.Tensor:
+        # The default Partial placement behavior:
+        # - moves from Replicate to Partial is just a divison operation
+        # - moves from Partial to Replicate is conjugate: a sum operation
+        # TODO: if the _Partial is min/max, etc. the replicate to partial
+        # would be a different operation
+        assert (
+            self.reduce_op == c10d.ReduceOp.SUM
+        ), "only support replicate to PartialSUM for now!"
+        num_chunks = mesh.size(dim=mesh_dim)
+        return tensor / num_chunks
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, _Partial):
