@@ -1221,6 +1221,9 @@ class CppKernel(Kernel):
         finally:
             self._load_mask = prior
 
+    def indexing(self, index):
+        return self.index_to_str(index), None, None, None
+
     def scale_index_with_offset(
         self, index: sympy.Expr, scale=1, itervar_idx=-1, offset=0
     ):
@@ -1235,6 +1238,9 @@ class CppKernel(Kernel):
         e.g. a sympy expression "s2" may actually appear as "ks1" in the cpp kernel.
         """
         return cexpr(self.rename_indexing(index))
+
+    def var_ranges(self):
+        return dict(zip(self.itervars, self.ranges))
 
     def load(self, name: str, index: sympy.Expr):
         var = self.args.input(name)

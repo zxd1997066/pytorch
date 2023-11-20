@@ -25,10 +25,11 @@ from sympy.printing.printer import Printer
 
 import torch
 import torch.fx
-from torch.utils._sympy.value_ranges import ValueRanges
+from torch.utils._sympy.value_ranges import bound_sympy, ValueRanges
 
 from .. import config, metrics
 from ..utils import (
+    cache_on_self,
     DeferredLineBase,
     do_bench,
     free_symbol_startswith,
@@ -896,7 +897,7 @@ class Kernel(CodeGen):
         self.current_node = None
         self.node_to_bounds: Optional[Dict[torch.fx.Node, ValueRanges]] = None
         # Upper bounds for indirect_indexing and their str representation
-        self.indirect_max_sizes: Dict[Tuple[str, str], Tuple[sympy.Expr, str]] = {}
+        self.indirect_max_sizes: Dict[Tuple[Any, str], Tuple[sympy.Expr, str]] = {}
 
         self.removed_buffers = set()
         self.inplaced_to_remove = set()
@@ -960,6 +961,9 @@ class Kernel(CodeGen):
     def reduction(self, dtype, src_dtype, reduction_type, value):
         raise NotImplementedError()
 
+    def var_ranges(self):
+        raise NotImplementedError()
+
     def bucketize(
         self,
         values,
@@ -1000,7 +1004,7 @@ class Kernel(CodeGen):
                 return inner
 
             @staticmethod
-            def indirect_indexing(var, size, check=True):
+            def wrap_index_var(var, size):
                 # Skip CSE since this doesn't return an expression
 
                 if var.bounds.lower < 0:
@@ -1019,42 +1023,25 @@ class Kernel(CodeGen):
                             new_bounds = new_bounds | pos
 
                     stm = ops.add(var, self.rename_indexing(size))
+
                     # Mixed negative and non-negative
                     if var.bounds.upper >= 0:
                         lt = ops.lt(var, "0")
                         stm = ops.where(lt, stm, var)
+                        # ops.add don't propagate the bounds
+                        stm.value.bounds = new_bounds
                     new_var = self.cse.generate(self.compute, stm, bounds=new_bounds)
 
                     new_var.update_on_args("index_wrap", (var,), {})
                     var = new_var
+                return var
 
+            @staticmethod
+            def indirect_indexing(var, size, check=True):
+                new_var = CSEProxy.wrap_index_var(var, size)
                 if self.generate_assert(check):
-                    mask = self.load_mask(var)
-
-                    # An assertion line may have been written already, if so just
-                    # update the max size.
-                    map_key = (var, mask)
-                    existing_size, _ = self.indirect_max_sizes.get(
-                        map_key, (None, None)
-                    )
-                    if existing_size is not None:
-                        size = sympy.Min(size, existing_size)
-                    else:
-                        line = (
-                            '{assert_fn}({cond}, "index out of bounds: {cond_print}")'
-                        )
-                        self.compute.writeline(
-                            IndirectAssertLine(
-                                line,
-                                self.assert_function,  # type: ignore[attr-defined]
-                                var,
-                                mask,
-                                self.indirect_max_sizes,
-                            )
-                        )
-
-                    self.indirect_max_sizes[map_key] = (size, self.index_to_str(size))  # type: ignore[attr-defined]
-                return sympy_symbol(str(var))
+                    CSEProxy.check_bounds(new_var, size)
+                return sympy_symbol(str(new_var))
 
             @staticmethod
             def load(name: str, index: sympy.Expr):
@@ -1068,6 +1055,37 @@ class Kernel(CodeGen):
                 if name in store_cache:
                     return store_cache[name]
                 return self.load(name, index)
+
+            @staticmethod
+            def check_bounds(index, size):
+                if isinstance(index, CSEVariable):
+                    var = index
+                    mask = self.load_mask(var)
+                elif isinstance(index, sympy.Expr):
+                    bounds = bound_sympy(index, self.get_ranges())
+                    index, _, mask, _ = self.indexing(index)  # type: ignore[attr-defined]
+                    var = self.cse.generate(self.compute, index, bounds=bounds)
+
+                # An assertion line may have been written already, if so just
+                # update the max size.
+                map_key = (var, mask)
+                existing_size, _ = self.indirect_max_sizes.get(map_key, (None, None))
+
+                if existing_size is not None:
+                    size = sympy.Min(size, existing_size)
+                else:
+                    line = '{assert_fn}({cond}, "index out of bounds: {cond_print}")'
+                    self.compute.writeline(
+                        IndirectAssertLine(
+                            line,
+                            self.assert_function,  # type: ignore[attr-defined]
+                            var,
+                            mask,
+                            self.indirect_max_sizes,
+                        )
+                    )
+
+                self.indirect_max_sizes[map_key] = (size, self.index_to_str(size))  # type: ignore[attr-defined]
 
             @staticmethod
             def store(name, index, value, mode=None):
@@ -1136,6 +1154,16 @@ class Kernel(CodeGen):
         if V.graph.scheduler:
             V.graph.scheduler.remove_kernel_local_buffers()
         super().__exit__(exc_type, exc_val, exc_tb)
+
+    @cache_on_self
+    def get_ranges(self):
+        ranges = {}
+        for symbol, range_ in self.var_ranges().items():
+            r = ValueRanges.unknown()
+            if isinstance(range_, int) or range_.is_number:
+                r = ValueRanges(0, range_ - 1)
+            ranges[symbol] = r
+        return ranges
 
     def generate_assert(self, check):
         return (check or config.debug_index_asserts) and config.assert_indirect_indexing
