@@ -401,9 +401,9 @@ def emit_view_functionalization_body(
       {{
         at::AutoDispatchSkipFunctionalize guard;
         if (reapply_views) {{
-          tmp_output = at::_ops::{noop_api_name}::call({', '.join(view_redispatch_args)});
+            tmp_output = at::_ops::{noop_api_name}::call({', '.join(view_redispatch_args)});
         }} else {{
-          tmp_output = at::_ops::{api_name}::call({', '.join(view_redispatch_args)});
+            tmp_output = at::_ops::{api_name}::call({', '.join(view_redispatch_args)});
         }}
       }}
       at::functionalization::ViewMeta view_meta = at::functionalization::ViewMeta(

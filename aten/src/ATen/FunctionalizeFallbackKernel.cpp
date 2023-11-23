@@ -24,6 +24,8 @@
 #include <ATen/ops/empty_strided_native.h>
 #include <ATen/ops/_unsafe_view.h>
 
+#include <c10/core/DispatchKey.h>
+
 #include <utility>
 #endif
 

@@ -153,7 +153,7 @@ class FunctionalTensor(torch.Tensor):
         return f"FunctionalTensor({repr(self.elem)})"
 
     @staticmethod
-    def to_functional(x):
+    def to_functional(x, is_pre_dispatch=False):
         # We will do the wrapping for the user.
         assert not torch._is_functional_tensor(x)
         # The only autograd metadata we care about on the FunctionalTensor is:
@@ -166,7 +166,7 @@ class FunctionalTensor(torch.Tensor):
         # _mirror_autograd_meta_to queries tensor sizes,
         # and otherwise the sym_size() call will go to the proxy mode before hitting
         # FunctionalTensor.__torch_dispatch__
-        with FunctionalTensorMode():
+        with FunctionalTensorMode(is_pre_dispatch):
             torch._mirror_autograd_meta_to(x, x_functional)  # type: ignore[attr-defined]
             out = FunctionalTensor(x_functional)
             torch._mirror_autograd_meta_to(x_functional, out)  # type: ignore[attr-defined]
@@ -190,7 +190,7 @@ class FunctionalTensor(torch.Tensor):
 
 
 class FunctionalTensorMode(TorchDispatchMode):
-    def __init__(self):
+    def __init__(self, pre_dispatch=False):
         self.is_on_stack = False
         self.enter_stack = []
         # Indicates to our torch_dispatch dispatching infra that
@@ -198,15 +198,24 @@ class FunctionalTensorMode(TorchDispatchMode):
         self._mode_key = torch._C._TorchDispatchModeKey.FUNCTIONAL
         # This will be turned off later for pre-dispatch functionalization
         self.decompose_composite_implicit_ops = True
+        self.pre_dispatch = pre_dispatch
+        self._dispatch_key = torch._C.DispatchKey.PreDispatch if pre_dispatch else None  # type: ignore[attr-defined]
 
     # No-op if FunctionalTensorMode is already in use
     def __enter__(self):
-        if (
-            torch._C._get_dispatch_mode(torch._C._TorchDispatchModeKey.FUNCTIONAL)
-            is None
-        ):
-            self.enter_stack.append(True)
+        def _get_prev_mode():
+            if self.pre_dispatch:
+                from torch._ops import _get_dispatch_mode_pre_dispatch
 
+                return _get_dispatch_mode_pre_dispatch(
+                    torch._C._TorchDispatchModeKey.FUNCTIONAL
+                )
+            return torch._C._get_dispatch_mode(
+                torch._C._TorchDispatchModeKey.FUNCTIONAL
+            )
+
+        if _get_prev_mode() is None:
+            self.enter_stack.append(True)
             return super().__enter__()
         else:
             self.enter_stack.append(False)
@@ -268,45 +277,16 @@ class FunctionalTensorMode(TorchDispatchMode):
             FunctionalTensor, unwrap, (args, kwargs)
         )
 
-        # Expectation: functionalization should not **already** be enabled above our mode.
-        # Why would that be bad? when we return a FunctionalTensor here, we don't want functionalization
-        # to run above this mode and further wrap that output in **another** C++ FunctionalTensorWrapper.
-        is_included = torch._C._dispatch_tls_is_dispatch_key_included(
-            torch._C.DispatchKey.Functionalize
-        )
-        is_excluded = torch._C._dispatch_tls_is_dispatch_key_excluded(
-            torch._C.DispatchKey.Functionalize
-        )
-        assert is_excluded or not is_included
-        include_to_set = (
-            torch._C._dispatch_tls_local_include_set()
-            | torch._C.DispatchKeySet(torch._C.DispatchKey.Functionalize)
-        )
-        exclude_to_set = (
-            torch._C._dispatch_tls_local_exclude_set().remove(
-                torch._C.DispatchKey.Functionalize
+        try:
+            # By default for python functionalization (for AOTAutograd), we reapply views.
+            old_apply_views = torch._functionalize_enable_reapply_views(True)  # type: ignore[attr-defined]
+            outs_unwrapped = func._op_dk(
+                torch._C.DispatchKey.Functionalize, *args_unwrapped, **kwargs_unwrapped
             )
-            - FunctionalTensor._extra_dispatch_keys
-        )
-        # All we want to do here is re-use the existing C++ functionalization logic.
-        # This requires swizzling our TLS dispatch keys so that the Functionalize key is active.
-        with torch._C._ForceDispatchKeyGuard(include_to_set, exclude_to_set):
-            try:
-                # By default for python functionalization (for AOTAutograd), we reapply views.
-                old_apply_views = torch._functionalize_enable_reapply_views(True)  # type: ignore[attr-defined]
-                outs_unwrapped = func(*args_unwrapped, **kwargs_unwrapped)
-                outs_wrapped = pytree.tree_map_only(torch.Tensor, wrap, outs_unwrapped)
-            finally:
-                torch._disable_functionalization()
-                torch._functionalize_enable_reapply_views(old_apply_views)  # type: ignore[attr-defined]
-
-        is_included = torch._C._dispatch_tls_is_dispatch_key_included(
-            torch._C.DispatchKey.Functionalize
-        )
-        is_excluded = torch._C._dispatch_tls_is_dispatch_key_excluded(
-            torch._C.DispatchKey.Functionalize
-        )
-        assert is_excluded or not is_included
+            outs_wrapped = pytree.tree_map_only(torch.Tensor, wrap, outs_unwrapped)
+        finally:
+            torch._disable_functionalization()
+            torch._functionalize_enable_reapply_views(old_apply_views)  # type: ignore[attr-defined]
 
         if (
             # If no outputs are our functional subclass, then don't try to fix up aliasing
