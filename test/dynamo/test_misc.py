@@ -12,6 +12,7 @@ import math
 import operator
 import os
 import random
+import re
 import sys
 import tempfile
 import threading
@@ -76,6 +77,7 @@ from torch.testing._internal.common_utils import (
     freeze_rng_state,
     IS_FBCODE,
     set_default_dtype,
+    wrapDeterministicFlagAPITest,
 )
 from torch.testing._internal.jit_utils import JitTestCase
 
@@ -8749,6 +8751,37 @@ ShapeEnv not equal: field values don't match:
                 torch._dynamo.exc.Unsupported, "call_function UserDefinedClassVariable"
             ):
                 print(fn_opt(torch.zeros(1)))
+
+    @wrapDeterministicFlagAPITest
+    def test_backward_deterministic_mode_mismatch_warning(self):
+        @torch.compile
+        def func(a, b):
+            return a + b
+
+        for forward_deterministic, backward_deterministic in itertools.product(
+            [True, False], [True, False]
+        ):
+            torch.use_deterministic_algorithms(forward_deterministic)
+            a = torch.randn(10, requires_grad=True)
+            res = func(a, 1)
+            grad = torch.ones_like(res)
+            torch.use_deterministic_algorithms(backward_deterministic)
+
+            with warnings.catch_warnings(record=True) as w:
+                res.backward(grad)
+
+            if forward_deterministic != backward_deterministic:
+                self.assertTrue(len(w) == 1)
+                warning = w[0].message
+                self.assertTrue(warning, UserWarning)
+                self.assertTrue(
+                    re.search(
+                        "^This compiled backward function is being run with torch\.use_deterministic_algorithms",
+                        str(warning),
+                    )
+                )
+            else:
+                self.assertTrue(len(w) == 0)
 
     def test_torch_dynamo_codegen_pow(self):
         def pow(x):
