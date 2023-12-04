@@ -569,7 +569,7 @@ def _outline_submodules(orig_graph: torch.fx.Graph, root_module: torch.fx.GraphM
         "",
         {
             entry.fqn: entry.signature
-            for entry in root_module.module_call_graph
+            for entry in root_module.module_call_graph  # type: ignore[union-attr]
             if entry.signature
         },
         graph_module=root_module,
