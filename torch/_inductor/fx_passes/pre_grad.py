@@ -25,6 +25,7 @@ from ..pattern_matcher import (
 from ..utils import is_cpu_device
 from .group_batch_fusion import group_batch_fusion_passes
 from .misc_patterns import numpy_compat_normalization
+from .numeric_utils import FWD_BWD_STRICT_CHECK, numeric_check
 
 log = logging.getLogger(__name__)
 
@@ -81,6 +82,13 @@ def pre_grad_passes(gm: torch.fx.GraphModule, example_inputs):
 
     if config.pre_grad_custom_pass is not None:
         config.pre_grad_custom_pass(gm.graph)
+
+    if config.runtime_numeric_check:
+        numeric_check(
+            actual_model_input=(example_inputs, gm.graph, None),
+            check_settings=FWD_BWD_STRICT_CHECK,
+            )
+
     stable_topological_sort(gm.graph)
     gm.graph.lint()
     gm.recompile()

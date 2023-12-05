@@ -126,6 +126,9 @@ force_fuse_int_mm_with_mul = False
 # Autotune will compare perf with normal cast->then->mm option
 use_mixed_mm = False
 
+# enable runtime numeric check for Optimus
+runtime_numeric_check = False
+
 # for pattern torch.mm(a, b.to(dtype)) with cuda tensors, always use
 # torch._inductor.kernel.mm.tuned_mixed_mm's fused kernel.
 # Autotune will not compare with normal cast->then->mm option.
