@@ -1089,7 +1089,7 @@ def simplify_split_cat(match: Match, split_sections: List[int], dim: int):
 
 
 # noqa: W605
-# ############The pattern to be optimized is#########
+# ############pattern to be optimized is#########
 
 #                 split_node(dim=1)
 #       /     \         ...       /         \
@@ -1098,7 +1098,7 @@ def simplify_split_cat(match: Match, split_sections: List[int], dim: int):
 #      cat (user=mul, dim=1)           cat(user=mul, dim=1)
 #       |            \                   |          \
 
-# ################After transformation#############
+# ################after transformation#############
 
 #                 split_node(dim=1)
 #       /              ...                  \
@@ -1106,14 +1106,11 @@ def simplify_split_cat(match: Match, split_sections: List[int], dim: int):
 #     |    \                              |     \
 
 
-def safe_to_abort_node(node: torch.fx.Node):
-    """
-    1. the input nodes of the node should come from the same parent
-    2. the user of all the input nodes should be only one
-    """
+def has_same_parent_node(node: torch.fx.Node):
+    # the input nodes of the node should come from the same parent
     prev_node = None
     for arg in node.args[0]:
-        if len(arg.users) != 1 or arg.target != operator.getitem:
+        if arg.target != operator.getitem:
             return False
         if prev_node is None:
             prev_node = arg.args[0]
@@ -1163,10 +1160,13 @@ def merge_getitem_cat(match: Match, split_sections: List[int], dim: int):
     for cat_user in next_users:
         if cat_user.target == torch.cat:
             cat_dim = get_arg_value(cat_user, 1, "dim")
-            if split_dim != cat_dim:
-                continue
             # check the all getitems in the cat_user from the same node
-            if not safe_to_abort_node(cat_user):
+            # check the input of the cat has all getitem from the split
+            if (
+                split_dim != cat_dim
+                or not has_same_parent_node(cat_user)
+                or not all(len(arg.users) == 1 for arg in cat_user.args[0])
+            ):
                 continue
             # find the index of getitems to be cated/stacked
             indices = []
@@ -1225,6 +1225,61 @@ def merge_getitem_cat(match: Match, split_sections: List[int], dim: int):
                 counters["inductor"]["getitem_cat_merged"] += 1
 
 
+# ############pattern to be optimized is#########
+
+#                 split_node(dim=1)  -> user=multiple
+#       /     \         ...       /         \
+# getitem    getitem          getitem     getitem   -> user=multiple
+#    \       \                    /      /
+#             cat(user=mul, dim=1)
+#                      |
+
+# ################after transformation#############
+
+#                 split_node(dim=1)         -> -> user=multiple
+#       /     \         ...       /         \
+# getitem    getitem          getitem     getitem   -> user=multiple
+#    \       \                    /      /
+
+
+@register_graph_pattern(
+    CallFunction(
+        torch.cat,
+        getitem_split,
+        dim=Ignored(),
+        _users=MULTIPLE,
+    ),
+    pass_dict=split_cat_pass,
+    extra_check=config_flag("split_cat_fx_passes"),
+)
+def remove_cat(match: Match, split_sections: List[int], dim: int):
+    if not isinstance(split_sections, (list, tuple)):  # Unnormalized split
+        return
+    graph = match.graph
+    split_node = next(node for node in match.nodes if node.target == torch.split)
+    split_input, split_size, split_dim = _get_split_args_default(split_node)
+    # if the cat and split have different dims, return
+    # Find the next users (i.e. users after the getitem)
+    next_users = find_next_users(split_node)
+    for cat_user in next_users:
+        if cat_user.target == torch.cat:
+            cat_dim = get_arg_value(cat_user, 1, "dim") or 0
+            # check that all getitems in the cat_user from the same node
+            # check the input of the cat has all getitem from the split
+            if (
+                split_dim != cat_dim
+                or not has_same_parent_node(cat_user)
+                or len(split_sections) != len(cat_user.args[0])
+            ):
+                continue
+            # replace the users of the cat node to be the input of the split node
+            cat_user.replace_all_uses_with(split_node.args[0])
+            # remove the cat node
+            graph.erase_node(cat_user)
+
+            counters["inductor"]["cat_removed"] += 1
+
+
 # noqa: W605
 # ############The pattern to be optimized is#########
 #                            split_node (dim=1)
@@ -1256,9 +1311,7 @@ def merge_getitem_cat(match: Match, split_sections: List[int], dim: int):
             torch.stack,
             getitem_split,
             dim=Ignored(),
-            _users=1,
         ),
-        _users=1,
     ),
     pass_dict=merge_getitem_cat_pass,
     extra_check=config_flag("split_cat_fx_passes"),
@@ -1270,9 +1323,7 @@ def merge_getitem_cat(match: Match, split_sections: List[int], dim: int):
             torch.stack,
             tensors=getitem_split,
             dim=Ignored(),
-            _users=1,
         ),
-        _users=1,
     ),
     pass_dict=merge_getitem_cat_pass,
     extra_check=config_flag("split_cat_fx_passes"),
@@ -1284,9 +1335,7 @@ def merge_getitem_cat(match: Match, split_sections: List[int], dim: int):
             torch.stack,
             getitem_split,
             Ignored(),
-            _users=1,
         ),
-        _users=1,
     ),
     pass_dict=merge_getitem_cat_pass,
     extra_check=config_flag("split_cat_fx_passes"),
@@ -1304,15 +1353,19 @@ def merge_stack_tahn_unbind(match: Match, split_sections: List[int], dim: int):
     for user in next_users:
         # stack user only has one user
         if user.target == torch.stack:
-            if not safe_to_abort_node(user):
-                continue
+            stack_dim = get_arg_value(user, 1, "dim") or 0
             unbind_user = find_next_users(user)[0]
             if unbind_user.target != torch.unbind:
                 continue
             unbind_dim = get_arg_value(unbind_user, 1, "dim") or 0
-            stack_dim = get_arg_value(user, 1, "dim") or 0
-            # stack and unbind shouldhave the same dim
-            if unbind_user.target != torch.unbind or stack_dim != unbind_dim:
+            # stack and unbind should have the same dim
+            # check the all getitems in the user from the same node
+            # check all the getitems only has single user
+            if (
+                stack_dim != unbind_dim
+                or not has_same_parent_node(user)
+                or not all(len(arg.users) == 1 for arg in user.args[0])
+            ):
                 continue
             # find the index of getitems to be stacked
             indices = []
