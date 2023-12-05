@@ -187,6 +187,7 @@ namespace {
     }
   };
 
+#if defined(CUDNN_VERSION) && CUDNN_VERSION < 9000
   // TensorDescriptor list
 
   std::vector<TensorDescriptor> rnn_descriptor_sequence(const Tensor& tensor, IntArrayRef batch_sizes) {
@@ -211,6 +212,36 @@ namespace {
     }
     return descriptors;
   }
+#else
+  auto rnn_descriptor_sequence(const Tensor& tensor, IntArrayRef batch_sizes, std::vector<int> &seq_lengths, bool batch_first) {
+    //std::vector<TensorDescriptor> descriptors(batch_sizes.size());
+    seq_lengths.clear();
+    auto is_input_packed = batch_sizes.size() != 0;
+    //RNNDataDescriptor descriptors;
+    //size_t i = 0;
+    //// To be mutated in the loop
+    //auto batch_tensor_size = tensor.sizes().vec();
+    //for (auto batch_size : batch_sizes) {
+    //  batch_tensor_size[0] = batch_size;
+    //  // NB: cuDNN RNN API does not support 2d descriptors, so we
+    //  // must pad it out to 3d.
+    //  descriptors[i].set(getCudnnDataType(tensor), batch_tensor_size, tensor.strides(), 3);
+    //  i++;
+    //}
+    //return descriptors;
+    //return std::move(RNNDataDescriptor(t, is_input_packed, batch_first, int seq_length, int batch_size, int input_size, int* seqLengthArray));
+  }
+
+  auto rnn_descriptor(const Tensor& tensor, int64_t N, std::vector<int> &seq_lengths) {
+    //std::vector<TensorDescriptor> descriptors(N);
+    seq_lengths.clear();
+    //RNNDataDescriptor descriptors;
+    //for (const auto i : c10::irange(N)) {
+    //  descriptors[i].set(tensor, 5);
+    //}
+    //return descriptors;
+  }
+#endif
 
   // The best way to understand the meaning of the values stored in
   // this struct is to consider each of the possible ways our
@@ -283,6 +314,9 @@ namespace {
     int64_t input_size;
     // Only valid when !is_input_packed
     int64_t batch_sizes_sum; // == sum(batch_sizes)
+#if defined(CUDNN_VERSION) && CUDNN_VERSION >= 9000
+    std::vector<int> seq_lengths;
+#endif
 
     bool is_input_packed() const {
       return batch_sizes.size() != 0;
@@ -312,6 +346,7 @@ namespace {
       }
     }
 
+#if defined(CUDNN_VERSION) && CUDNN_VERSION < 9000
     // TODO: check x for consistency with input_size?
     std::vector<TensorDescriptor> descriptors(Tensor x) const {
       auto is_input_packed = batch_sizes.size() != 0;
@@ -321,6 +356,16 @@ namespace {
         return rnn_descriptor(x[0], seq_length);
       }
     }
+#else
+    auto descriptors(Tensor x, bool batch_first) const {
+      auto is_input_packed = batch_sizes.size() != 0;
+      if (is_input_packed) {
+
+      } else {
+        //return 
+      }
+    }
+#endif
   };
 
   // Everything together
@@ -340,8 +385,8 @@ namespace {
     std::vector<TensorDescriptor> x_descs;
     std::vector<TensorDescriptor> y_descs;
 #else
-    std::vector<TensorDescriptor> x_descs;
-    std::vector<TensorDescriptor> y_descs;
+    RNNDataDescriptor x_descs;
+    RNNDataDescriptor y_descs;
 #endif
     TensorDescriptor hx_desc;
     TensorDescriptor hy_desc;
@@ -360,6 +405,7 @@ namespace {
       }
     }
 
+#if defined(CUDNN_VERSION) && CUDNN_VERSION < 9000
     // TODO: This is annoying, having to put the cudnnTensorDescriptor_t
     // in a contiguous array...
     std::vector<cudnnTensorDescriptor_t> get_descs(const std::vector<TensorDescriptor>& descs) {
@@ -378,6 +424,15 @@ namespace {
     std::vector<cudnnTensorDescriptor_t> get_y_descs() {
       return get_descs(y_descs);
     }
+#else
+    auto& get_x_descs() {
+      return x_descs;
+    }
+
+    auto& get_y_descs() {
+      return y_descs;
+    }
+#endif
   };
 
   int64_t get_num_weights(cudnnHandle_t handle, const RNNDescriptor& rnn_desc,

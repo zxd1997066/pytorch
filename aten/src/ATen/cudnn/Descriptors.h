@@ -118,6 +118,27 @@ private:
   std::unique_ptr<T, DescriptorDeleter<T, dtor>> desc_;
 };
 
+class TORCH_CUDA_CPP_API RNNDataDescriptor : public Descriptor<
+					       cudnnRNNDataStruct,
+					       &cudnnCreateRNNDataDescriptor,
+					       &cudnnDestroyRNNDataDescriptor> {
+  public:
+    explicit RNNDataDescriptor(const at::Tensor &t, bool is_input_packed, bool batch_first, int seq_length, int batch_size, int input_size, int* seqLengthArray) {
+      // TODO
+      cudnnRNNDataLayout_t layout = is_input_packed ? CUDNN_RNN_DATA_LAYOUT_SEQ_MAJOR_PACKED : 
+          batch_first ? CUDNN_RNN_DATA_LAYOUT_SEQ_MAJOR_PACKED : CUDNN_RNN_DATA_LAYOUT_BATCH_MAJOR_UNPACKED;
+  
+      set(t, layout, seq_length, batch_size, input_size, seqLengthArray);
+    }
+  
+    void set(const at::Tensor &t, cudnnRNNDataLayout_t layout, int maxSeqLength, int batchSize, int vectorSize, int* seqLengthArray);
+  private:
+    void set(cudnnDataType_t dataType, cudnnRNNDataLayout_t layout, int maxSeqLength, int batchSize, int vectorSize, int* seqLengthArray) {
+      cudnnSetRNNDataDescriptor(mut_desc(), dataType, layout, maxSeqLength, batchSize, vectorSize, seqLengthArray, NULL);
+    }
+  
+};
+
 class TORCH_CUDA_CPP_API TensorDescriptor : public Descriptor<
                                                cudnnTensorStruct,
                                                &cudnnCreateTensorDescriptor,

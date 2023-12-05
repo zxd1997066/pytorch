@@ -32,6 +32,10 @@ inline cudnnDataType_t getDataType(const at::Tensor& t) {
 } // anonymous namespace
 
 
+void RNNDataDescriptor::set(const at::Tensor &t, cudnnRNNDataLayout_t layout, int maxSeqLength, int batchSize, int vectorSize, int* seqLengthArray) {
+  set(getDataType(t), layout, maxSeqLength, batchSize, vectorSize, seqLengthArray);
+}
+
 void TensorDescriptor::set(const at::Tensor &t, at::MemoryFormat memory_format, size_t pad) {
   set(getDataType(t), t.sizes(), t.strides(), pad,
     memory_format == at::MemoryFormat::ChannelsLast ||
