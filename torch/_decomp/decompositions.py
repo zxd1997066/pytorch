@@ -1532,6 +1532,7 @@ def native_layer_norm_backward(
         grad_x_hat = grad_out_cast * weight_cast
     else:
         grad_x_hat = grad_out_cast
+    print(f"x_hat shape = {x_hat.shape}\ngrad_x_hat shape = {grad_out_cast.shape}")
     a = grad_x_hat * N
     b = torch.sum(grad_x_hat, inner_dim_indices, True)
     c1 = torch.mul(grad_x_hat, x_hat)
@@ -1539,6 +1540,7 @@ def native_layer_norm_backward(
     c3 = torch.mul(x_hat, c2)
 
     inner = a - b - c3
+    print(f"inner shape = {inner.shape}")
     d_input: Optional[Tensor] = None
     d_weight: Optional[Tensor] = None
     d_bias: Optional[Tensor] = None

@@ -96,6 +96,9 @@ class OpDispatcher:
         """
         Main dispatching logic
         """
+        #print(f"dispatch op call: {op_call}")
+        #for idx, arg in enumerate(args):
+        #    print(f"idx {idx}, arg = {arg}")
         # operators that does not need to go through sharding propagation
         if op_call in self._custom_op_handlers:
             return self._custom_op_handlers[op_call](op_call, args, kwargs)  # type: ignore[operator]
@@ -103,9 +106,12 @@ class OpDispatcher:
         # extract local tensor and sharding infos to a OpInfo
         op_info = self.unwrap_to_op_info(op_call, args, kwargs)
 
+        # print(f"op_info.schema.has_symints = {op_info.schema.has_symints}")
+        # print(f"op = {}, schema before prop = {op_info.schema}")
         self.sharding_propagator.propagate(op_info)
         output_sharding = op_info.output_sharding
         assert output_sharding is not None, "output sharding should not be None"
+        # print(f"op = {}, schema after prop: {output_sharding}")
 
         mesh = op_info.mesh
         if mesh.get_coordinate() is None:
@@ -158,6 +164,7 @@ class OpDispatcher:
             if output_sharding.needs_redistribute:
                 # compute locally with redistribute first if needed
                 assert output_sharding.schema_suggestions is not None
+                print(f"redistribute local args: {output_sharding.schema_suggestions[0]}")
                 self.redistribute_local_args(
                     op_info, output_sharding.schema_suggestions[0]
                 )
@@ -186,7 +193,9 @@ class OpDispatcher:
                 ):
                     local_results = op_call(*local_tensor_args, **op_info.local_kwargs)
             else:
+                print(f"args = {local_tensor_args}")
                 local_results = op_call(*local_tensor_args, **op_info.local_kwargs)
+                print(f"local results = {local_results}")
 
         # communicate the result to all ranks for some operators that return scalar value
         if output_sharding.output_spec is None:
