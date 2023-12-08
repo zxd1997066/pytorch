@@ -407,6 +407,7 @@ class TraceRuleTests(torch._dynamo.test_case.TestCase):
             "unexpected break when accessing python constants in torch.*",
         )
 
+
 if __name__ == "__main__":
     from torch._dynamo.test_case import run_tests
 
