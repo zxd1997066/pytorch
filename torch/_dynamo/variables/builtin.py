@@ -1234,7 +1234,14 @@ class BuiltinVariable(VariableTracker):
             if is_utils_checkpoint(member):
                 options["source"] = source
                 return build_checkpoint_variable(**options)
-            elif istype(member, (str, int, torch.torch_version.TorchVersion, )):
+            elif istype(
+                member,
+                (
+                    str,
+                    int,
+                    torch.torch_version.TorchVersion,
+                )
+            ):
                 vt = ConstantVariable(member, **options)
                 install_guard(vt.source.make_guard(GuardBuilder.CONSTANT_MATCH))
                 return vt
