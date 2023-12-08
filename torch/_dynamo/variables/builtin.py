@@ -1240,7 +1240,7 @@ class BuiltinVariable(VariableTracker):
                     str,
                     int,
                     torch.torch_version.TorchVersion,
-                )
+                ),
             ):
                 vt = ConstantVariable(member, **options)
                 install_guard(vt.source.make_guard(GuardBuilder.CONSTANT_MATCH))
