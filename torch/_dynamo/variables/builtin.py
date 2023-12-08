@@ -1234,6 +1234,10 @@ class BuiltinVariable(VariableTracker):
             if is_utils_checkpoint(member):
                 options["source"] = source
                 return build_checkpoint_variable(**options)
+            elif istype(member, (str, int, torch.torch_version.TorchVersion, )):
+                vt = ConstantVariable(member, **options)
+                install_guard(vt.source.make_guard(GuardBuilder.CONSTANT_MATCH))
+                return vt
             elif trace_rules.lookup(member) is not None:
                 return trace_rules.lookup(member)(member, **options)
             elif source is not None:

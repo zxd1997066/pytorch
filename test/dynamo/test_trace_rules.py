@@ -11,6 +11,7 @@ import warnings
 import torch
 import torch._dynamo.config as config
 import torch._dynamo.test_case
+import torch._dynamo.testing
 import torch._functorch.deprecated as deprecated_func
 from torch._dynamo.external_utils import is_compiling
 from torch._dynamo.skipfiles import (
@@ -390,6 +391,17 @@ class TraceRuleTests(torch._dynamo.test_case.TestCase):
             res = opt_fn(x)
             self.assertEqual(ref, res)
 
+    def test_torch_constant(self):
+        cnt = torch._dynamo.testing.CompileCounter()
+
+        @torch._dynamo.optimize(cnt)
+        def fn(x):
+            x = torch.rand(3)
+            y = x * int(torch.__version__.split('.')[0])
+            return y
+
+        res = fn()
+        self.assertEqual(cnt.frame_count, 1, "unexpected break when accessing python constants in torch.*")
 
 if __name__ == "__main__":
     from torch._dynamo.test_case import run_tests
