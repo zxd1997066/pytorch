@@ -397,11 +397,15 @@ class TraceRuleTests(torch._dynamo.test_case.TestCase):
         @torch._dynamo.optimize(cnt)
         def fn():
             x = torch.rand(3)
-            y = x * int(torch.__version__.split('.')[0])
+            y = x * int(torch.__version__.split(".")[0])
             return y
 
         res = fn()
-        self.assertEqual(cnt.frame_count, 1, "unexpected break when accessing python constants in torch.*")
+        self.assertEqual(
+            cnt.frame_count,
+            1,
+            "unexpected break when accessing python constants in torch.*",
+        )
 
 if __name__ == "__main__":
     from torch._dynamo.test_case import run_tests
