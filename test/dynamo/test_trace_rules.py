@@ -395,7 +395,7 @@ class TraceRuleTests(torch._dynamo.test_case.TestCase):
         cnt = torch._dynamo.testing.CompileCounter()
 
         @torch._dynamo.optimize(cnt)
-        def fn(x):
+        def fn():
             x = torch.rand(3)
             y = x * int(torch.__version__.split('.')[0])
             return y
