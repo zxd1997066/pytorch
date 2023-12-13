@@ -93,6 +93,18 @@ if(USE_CUDA)
   endif()
 endif()
 
+# ---[ XPU
+if(USE_XPU)
+  set(CAFFE2_USE_XPU ${USE_XPU})
+  include(${CMAKE_CURRENT_LIST_DIR}/public/xpu.cmake)
+  if(NOT CAFFE2_USE_XPU)
+    message(WARNING "Not compiling with XPU. Could NOT find SYCL (${IntelSYCL_NOT_FOUND_MESSAGE})."
+    "Suppress this warning with -DUSE_XPU=OFF.")
+    caffe2_update_option(USE_XPU OFF)
+    set(CAFFE2_USE_XPU OFF)
+  endif()
+endif()
+
 # ---[ Custom Protobuf
 if(CAFFE2_CMAKE_BUILDING_WITH_MAIN_REPO AND NOT INTERN_BUILD_MOBILE)
   disable_ubsan()
