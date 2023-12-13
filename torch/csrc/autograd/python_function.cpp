@@ -7,6 +7,7 @@
 #include <structmember.h>
 #include <torch/csrc/python_headers.h>
 #include <torch/csrc/utils/pybind.h>
+#include <torch/csrc/PyInterpreter.h>
 
 #include <ATen/FuncTorchTLS.h>
 #include <ATen/functorch/DynamicLayer.h>
@@ -177,6 +178,118 @@ auto PyNode::apply(variable_list&& inputs) -> variable_list {
   return results;
 }
 
+// Almost identical to apply, instead of calling directly into BackwardCFunction.apply
+// it calls into compiled autograd
+// TODO: merge this with apply's codegen
+auto PyNode::compiled_apply(variable_list&& inputs, SwapSavedVariables& saved) -> variable_list {
+  pybind11::gil_scoped_acquire gil;
+  at::OptionalDeviceGuard _device_guard;
+  THPFunction* py_fn = (THPFunction*)obj;
+
+  // Massage a C++ variable_list into a Python arguments tuple
+  auto num_inputs = inputs.size();
+  THPObjectPtr pyInputs(PyTuple_New(static_cast<Py_ssize_t>(num_inputs)));
+  if (!pyInputs)
+    throw_python_error();
+  auto& output_info = py_fn->output_info;
+  for (const auto i : c10::irange(num_inputs)) {
+    // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
+    PyObject* input;
+    if (inputs[i].defined() || !py_fn->materialize_grads ||
+        (input_metadata(i).was_default_constructed() &&
+         !py_fn->materialize_non_diff_grads)) {
+      input = THPVariable_Wrap(inputs[i]);
+    } else {
+      auto zeros_without_gil = [](const VariableInfo& variable,
+                                  at::OptionalDeviceGuard& device_guard) {
+        pybind11::gil_scoped_release gil;
+        return variable.zeros(device_guard);
+      };
+      input =
+          THPVariable_Wrap(zeros_without_gil(output_info[i], _device_guard));
+    }
+    if (!input)
+      throw_python_error();
+    PyTuple_SET_ITEM(pyInputs.get(), i, input);
+  }
+
+  THPObjectPtr apply_fn(PyObject_GetAttrString(obj, "apply"));
+  if (!apply_fn)
+    throw_python_error();
+
+  /* START */
+  int idx = 0; // do we need support for multiple custom autograd functions in the same graph?
+  THPObjectPtr r(PyObject_CallMethod(
+    saved.get_py_compiler(),
+    "proxy_call_backward",
+    "Oi",
+    pyInputs.get(),
+    // saved_variables,
+    idx));
+  /* END */
+  if (!r)
+    throw_python_error();
+  ensure_tuple(r);
+
+  auto& is_variable_input = py_fn->is_variable_input;
+  auto num_outputs = PyTuple_GET_SIZE(r.get());
+  auto num_forward_inputs = static_cast<Py_ssize_t>(is_variable_input.size());
+  // Returning too many results is ok, but only as long as they're all None.
+  // Truncate the result tuple in that case.
+  if (num_outputs > num_forward_inputs) {
+    bool all_none = true;
+    for (const auto i : c10::irange(num_forward_inputs, num_outputs)) {
+      all_none &= PyTuple_GET_ITEM(r.get(), i) == Py_None;
+    }
+    if (all_none) {
+      num_outputs = num_forward_inputs;
+      r = PyTuple_GetSlice(r.get(), 0, num_forward_inputs);
+      if (!r)
+        throw_python_error();
+    }
+  }
+
+  // Now the number of gradients should match
+  if (num_outputs != num_forward_inputs) {
+    std::string msg("function ");
+    msg += name() + " returned an incorrect number of gradients (expected ";
+    msg += std::to_string(num_forward_inputs) + ", got ";
+    msg += std::to_string(num_outputs) + ")";
+    throw std::runtime_error(msg);
+  }
+
+  // Massage the Python results tuple back into a C++ variable_list
+  variable_list results;
+  results.reserve(num_outputs);
+  for (int i = 0; i != num_outputs; ++i) {
+    PyObject* output = PyTuple_GET_ITEM(r.get(), i);
+    bool was_variable = is_variable_input[i];
+    if (!was_variable) {
+      if (output != Py_None) {
+        std::string msg("function ");
+        msg += name() + " returned a gradient different than None at position ";
+        msg += std::to_string(i + 1) +
+            ", but the corresponding forward input was not a Variable";
+        throw std::runtime_error(msg);
+      }
+      continue;
+    }
+    if (output == Py_None) {
+      results.emplace_back();
+    } else {
+      if (!THPVariable_Check(output)) {
+        std::string msg("expected Variable or None (got ");
+        msg += THPUtils_typename(output);
+        msg += ")";
+        throw std::runtime_error(msg);
+      }
+      results.emplace_back(THPVariable_Unpack(output));
+    }
+  }
+
+  return results;
+}
+
 auto PyNode::is_traceable() -> bool {
   pybind11::gil_scoped_acquire gil;
   THPObjectPtr forward_class{PyObject_GetAttrString(obj, "_forward_cls")};
@@ -252,6 +365,16 @@ void PyNode::compiled_args(CompiledNodeArgs& args) {
   args.collect(f->materialize_non_diff_grads);
   args.collect(f->output_info);
   args.collect(f->input_info);
+
+  static PyObject* forward_cls_name =
+      PyUnicode_InternFromString("_forward_cls");
+  PyObject* forward_cls(PyObject_GetAttr(obj, forward_cls_name));
+  static PyObject* backward_name =
+      PyUnicode_InternFromString("backward");
+  PyObject* backward(PyObject_GetAttr(forward_cls, backward_name));
+
+  args.add_backward(c10::SafePyObject(backward, getPyInterpreter()));
+  args.add_backward(c10::SafePyObject(saved_variables, getPyInterpreter()));
 }
 
 variable_list PyNode::apply_with_saved(
@@ -266,7 +389,7 @@ variable_list PyNode::apply_with_saved(
   saved.before(f->output_info);
   saved.before(f->input_info);
   f->compiled_autograd_tracing = true;
-  auto result = apply(variable_list(inputs));
+  auto result = compiled_apply(variable_list(inputs), saved);
   f->compiled_autograd_tracing = false;
   saved.after(f->compiled_autograd_symints);
   saved.after(f->saved_variables);
