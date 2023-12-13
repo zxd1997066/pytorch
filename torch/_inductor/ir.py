@@ -3440,16 +3440,13 @@ class ConcatKernel(NopKernel):
             )
             concat_kernel.inputs.append(input_buffer)
 
-            if isinstance(input.data, BaseView):
-                input_unwrapped = input.data.unwrap_view()
-            else:
-                input_unwrapped = input.data
-
             if (
-                copy_required and len(inputs) >= 10
+                copy_required and len(inputs) >= 2
                 and input.get_device().type == "cuda"
                 and not is_dynamic(input_buffer)
             ):
+                # Creates a single copy kernel in the form of a ForEachKernel.
+                # Otherwise, we'll have [ncopies] kernels.
                 buffer_names.append(input_buffer.get_name())
 
         if len(buffer_names) > 1:
