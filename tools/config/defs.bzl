@@ -12,13 +12,6 @@ def if_cuda(if_true, if_false = []):
         "//conditions:default": if_false,
     })
 
-def if_xpu(if_true, if_false = []):
-    """Helper for selecting based on the whether XPU is configured. """
-    return selects.with_or({
-        "@//tools/config:xpu_enabled_and_capable": if_true,
-        "//conditions:default": if_false,
-    })
-
 def if_tensorrt(if_true, if_false = []):
     """Helper for selecting based on the whether TensorRT is configured. """
     return select({

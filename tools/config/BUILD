@@ -16,15 +16,6 @@ selects.config_setting_group(
     ],
 )
 
-# Even when building with --config=xpu, host targets should be built with xpu disabled
-# as these targets will run on CI machines that have no GPUs.
-selects.config_setting_group(
-    name = "xpu_enabled_and_capable",
-    match_all = [
-        ":xpu",
-    ],
-)
-
 # Configures the system to build with cuda using clang.
 config_setting(
     name = "cuda_clang",

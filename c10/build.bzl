@@ -20,11 +20,5 @@ def define_targets(rules):
                 "//c10/cuda:Macros",
             ],
             [],
-        ) + rules.if_xpu(
-            [
-                "//c10/xpu:xpu",
-                "//c10/xpu:Macros",
-            ],
-            [],
         ),
     )

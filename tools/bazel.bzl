@@ -3,7 +3,7 @@ load("@rules_cuda//cuda:defs.bzl", "cuda_library", "requires_cuda_enabled")
 load("@rules_python//python:defs.bzl", "py_binary", "py_library")
 load("@pip_deps//:requirements.bzl", "requirement")
 load("@pytorch//c10/macros:cmake_configure_file.bzl", "cmake_configure_file")
-load("@pytorch//tools/config:defs.bzl", "if_cuda", "if_xpu")
+load("@pytorch//tools/config:defs.bzl", "if_cuda")
 
 def _genrule(**kwds):
     if _enabled(**kwds):
@@ -25,7 +25,6 @@ rules = struct(
     genrule = _genrule,
     glob = native.glob,
     if_cuda = if_cuda,
-    if_xpu = if_xpu,
     is_cpu_static_dispatch_build = _is_cpu_static_dispatch_build,
     py_binary = py_binary,
     py_library = py_library,
