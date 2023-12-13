@@ -1,7 +1,7 @@
 #pragma once
 
-#include <sycl/sycl.hpp>
 #include <c10/xpu/XPUMacros.h>
+#include <sycl/sycl.hpp>
 
 namespace c10::xpu {
 

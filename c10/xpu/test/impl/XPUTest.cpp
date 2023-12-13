@@ -3,9 +3,9 @@
 #include <c10/xpu/XPUFunctions.h>
 
 #define ASSERT_EQ_XPU(X, Y) \
-  {                          \
-    bool _isEQ = X == Y;     \
-    ASSERT_TRUE(_isEQ);      \
+  {                         \
+    bool _isEQ = X == Y;    \
+    ASSERT_TRUE(_isEQ);     \
   }
 
 bool has_xpu() {
@@ -49,7 +49,8 @@ TEST(XPUTest, PointerGetDevice) {
   }
 
   sycl::device& raw_device = c10::xpu::xpuGetRawDevice(0);
-  void* ptr = sycl::malloc_device(8, raw_device, c10::xpu::xpuGetDeviceContext());
+  void* ptr =
+      sycl::malloc_device(8, raw_device, c10::xpu::xpuGetDeviceContext());
   c10::xpu::xpuPointerAttributes attr{};
   c10::xpu::xpuPointerGetDevice(&attr, ptr);
   ASSERT_EQ_XPU(attr.device, 0);
