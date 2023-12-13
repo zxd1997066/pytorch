@@ -14,6 +14,13 @@ bool has_xpu() {
   return count != 0;
 }
 
+TEST(XPUTest, DeviceCount) {
+#ifndef _WIN32
+  ASSERT_EQ_XPU(c10::xpu::device_count(), c10::xpu::prefetch_device_count());
+#endif
+  return;
+}
+
 TEST(XPUTest, DeviceBehavior) {
   if (!has_xpu()) {
     return;
@@ -53,5 +60,11 @@ TEST(XPUTest, PointerGetDevice) {
       sycl::malloc_device(8, raw_device, c10::xpu::xpuGetDeviceContext());
   c10::xpu::xpuPointerAttributes attr{};
   c10::xpu::xpuPointerGetDevice(&attr, ptr);
+  ASSERT_EQ_XPU(attr.type, sycl::usm::alloc::device);
   ASSERT_EQ_XPU(attr.device, 0);
+  sycl::free(ptr, c10::xpu::xpuGetDeviceContext());
+
+  int dummy = 0;
+  c10::xpu::xpuPointerGetDevice(&attr, &dummy);
+  ASSERT_EQ_XPU(attr.type, sycl::usm::alloc::unknown);
 }

@@ -32,9 +32,6 @@ if(${COMPILER_SUPPORTS_HIDDEN_VISIBILITY})
   target_compile_options(c10_xpu PRIVATE "-fvisibility=hidden")
 endif()
 
-# It will raise an error if define macro -DSYCL_LANGUAGE_VERSION as it has been
-# used in libsycl.so.
-target_compile_options(c10_xpu PRIVATE "-DSYCL_STANDARD_VERSION=${SYCL_LANGUAGE_VERSION}")
 set_target_properties(c10_xpu PROPERTIES CXX_STANDARD 17)
 
 # ---[ Dependency of c10_xpu
@@ -54,6 +51,12 @@ add_subdirectory(test)
 # individual libraries like libc10.so and libcaffe2.so are still self-contained.
 install(TARGETS c10_xpu EXPORT Caffe2Targets DESTINATION lib)
 foreach(file ${C10_XPU_HEADERS})
-  get_filename_component( dir ${file} DIRECTORY )
-  install( FILES ${file} DESTINATION include/c10/xpu/${dir} )
+  get_filename_component(dir ${file} DIRECTORY)
+  install(FILES ${file} DESTINATION include/c10/xpu/${dir})
 endforeach()
+install(FILES ${CMAKE_BINARY_DIR}/c10/xpu/impl/xpu_cmake_macros.h
+  DESTINATION include/c10/xpu/impl)
+
+if(MSVC AND C10_XPU_BUILD_SHARED_LIBS)
+  install(FILES $<TARGET_PDB_FILE:c10_xpu> DESTINATION lib OPTIONAL)
+endif()
