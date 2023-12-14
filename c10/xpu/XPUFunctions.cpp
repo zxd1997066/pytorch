@@ -2,17 +2,13 @@
 
 namespace c10::xpu {
 
-namespace {
-static inline int device_count_impl() {
-  int count = 0;
-  xpuGetDeviceCount(&count);
-  return count;
-}
-} // anonymous namespace
-
 DeviceIndex device_count() {
   // initialize number of devices only once
-  static int count = []() { return device_count_impl(); }();
+  static int count = []() {
+    int count = 0;
+    xpuGetDeviceCount(&count);
+    return count;
+  }();
   return static_cast<DeviceIndex>(count);
 }
 
@@ -35,11 +31,10 @@ void set_device(DeviceIndex device) {
 
 DeviceIndex prefetch_device_count() {
   int count = 0;
-  auto status = xpuPrefetchDeviceCount(&count);
-  if (status != XPU_SUCCESS) {
-    return -1;
+  if (xpuPrefetchDeviceCount(&count)) {
+    return static_cast<DeviceIndex>(count);
   }
-  return static_cast<DeviceIndex>(count);
+  return -1;
 }
 
 int ExchangeDevice(int to_device) {

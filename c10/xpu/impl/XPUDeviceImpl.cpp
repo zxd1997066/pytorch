@@ -17,10 +17,9 @@ namespace {
 /*
  * Note [Device Management]
  *
- * Intel GPU device is based on sycl::device enumerated via SYCL runtime on an
- * Intel oneAPI level zero backend. Intel GPU device runtime status can be
- * managed via a sycl device pool. The number of GPU devices is determined at
- * run time.
+ * Intel GPU device is based on sycl::device enumerated via SYCL runtime and
+ * device runtime status can be managed via a sycl device pool. The number of
+ * GPU devices is determined at run time.
  *
  * Currently, there is one SYCL device pool and the device pool is lazily
  * created only once. The device management mechanism is thread local safe.
@@ -36,29 +35,6 @@ struct XPUDevicePool {
   std::vector<std::unique_ptr<sycl::context>> contexts;
 } gDevicePool;
 
-/*
- * Note [Device Hierarchy]
- *
- * `ZE_FLAT_DEVICE_HIERARCHY`, a driver environment variable, allows users to
- * select the device hierarchy model with which the underlying hardware is
- * exposed and the types of devices returned with SYCL runtime.
- *
- * When setting to `COMPOSITE`, all root-devices are returned and traversing the
- * device hierarchy is possible, each containing sub-devices and implicit
- * scaling support.
- *
- * When setting to `FLAT`, all sub-devices are returned and traversing the
- * device hierarchy is NOT possible. So we can NOT access the their root
- * devices.
- *
- * When setting to `COMBINED`, it combined `COMPOSITE` and `FLAT` mode. All
- * sub-devices are returned and traversing the device hierarchy is possible. By
- * default, driver selects `FLAT` mode, where all sub-devices are exposed.
- *
- * For more details, see
- * https://spec.oneapi.io/level-zero/latest/core/PROG.html#device-hierarchy
- */
-
 static void enumDevices(std::vector<std::unique_ptr<sycl::device>>& devices) {
   auto platform_list = sycl::platform::get_platforms();
   // Enumerated GPU devices from GPU platform firstly.
@@ -66,7 +42,7 @@ static void enumDevices(std::vector<std::unique_ptr<sycl::device>>& devices) {
     if (platform.get_backend() != sycl::backend::ext_oneapi_level_zero) {
       continue;
     }
-    // Enumerated GPU devices from all devices, see Note [Device Hierarchy].
+    // Enumerated GPU devices from platform.
     auto device_list = platform.get_devices();
     for (const auto& device : device_list) {
       if (device.is_gpu()) {
@@ -241,43 +217,35 @@ void xpuPointerGetDevice(xpuPointerAttributes* attr, void* ptr) {
 /*
  * Note [Runtime in Multiprocessing]
  *
- * We have known the limitation of fork support in SYCL runtime and LevelZero
- * runtime. If we call runtime APIs in parent process, then fork a child
- * process, there will be an error in runtime if submit any kernel in parent
- * process or child process.
+ * We have known the limitation of fork support in SYCL runtime. If we call
+ * runtime APIs in parent process, then fork a child process, there will be an
+ * error in runtime if submit any kernel in parent process or child process.
  *
- * In general, `zeInit` must be called after fork, not before. That's because if
- * it is called before fork some structs are inherited by the child process,
- * which means both child and parent are referring to the same internal
- * structures, producing problems, like on SYCL kernel's submission.
+ * In general, SYCL runtime initialization must be called after fork, not
+ * before. So we have to call runtime APIs using another fork, pipe the result
+ * back to the parent, and then fork the actual child process.
  *
- * So we have to call runtime APIs using another fork, pipe the result back
- * to the parent, and then fork the actual child process. For example, we would
- * like to get device count before fork process to check if XPU device is
- * available.
- *
- * We have to fork another child process before calling `zeInit` API in parent
- * process. Then query device count using SYCL runtime APIs. Finally pipe the
- * result to parent process. Now we can check if XPU device is available and
- * fork the actual child process to do the calculation.
- *
+ * We have to fork another child process first. Then query device count using
+ * SYCL runtime APIs. Finally pipe the result to parent process. Now we can
+ * check if XPU device is available and fork the actual child process to do the
+ * calculation.
  */
 
 // This function can be used to get device count and no exception. It is used in
 // device_count() and is_avaialble() such that both two functions can be called
 // before forking process.
-XPU_STATUS xpuPrefetchDeviceCount(int* device_count) {
+bool xpuPrefetchDeviceCount(int* device_count) {
 #ifndef _WIN32
   std::array<int, 1> buffer;
   std::array<int, 2> pipefd;
   if (pipe(pipefd.data()) != 0) {
-    return XPU_FAILURE;
+    return false;
   }
 
   // See Note [Runtime in Multiprocessing].
   int pid = fork();
   if (pid < 0) {
-    return XPU_FAILURE;
+    return false;
   } else if (pid == 0) { // child process
     std::vector<std::unique_ptr<sycl::device>> devices;
     buffer[0] = DeviceCountImpl(devices);
@@ -293,9 +261,9 @@ XPU_STATUS xpuPrefetchDeviceCount(int* device_count) {
   }
 
   *device_count = buffer[0];
-  return XPU_SUCCESS;
+  return true;
 #else
-  return XPU_FAILURE;
+  return false;
 #endif
 }
 

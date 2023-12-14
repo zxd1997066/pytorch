@@ -9,9 +9,7 @@
   }
 
 bool has_xpu() {
-  int count = 0;
-  c10::xpu::xpuGetDeviceCount(&count);
-  return count != 0;
+  return c10::xpu::device_count() > 0;
 }
 
 TEST(XPUTest, DeviceCount) {

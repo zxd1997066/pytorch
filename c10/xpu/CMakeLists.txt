@@ -19,7 +19,6 @@ set(C10_XPU_SRCS
     impl/XPUDeviceImpl.cpp
 )
 set(C10_XPU_HEADERS
-    XPUException.h
     XPUFunctions.h
     XPUMacros.h
     impl/XPUDeviceAttributes.h
