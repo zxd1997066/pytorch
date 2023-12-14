@@ -875,6 +875,8 @@ class DistributedDataParallel(Module, Joinable):
             torch._dynamo.config.optimize_ddp = False
             self._register_accum_grad_hook()
 
+        torch._inductor.config.allreduce_fusion_bucket_size = bucket_cap_mb
+
     def _register_accum_grad_hook(self):
         import torch.distributed._functional_collectives as fcol
 
