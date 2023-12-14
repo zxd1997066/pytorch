@@ -222,6 +222,12 @@ enforce_cond_guards_match = True
 # about optimize_ddp behavior.
 optimize_ddp = True
 
+# Register Python hooks for AccumuldateGrad when using DDP. With Python hooks
+# and compiled_autograd(), the allreduce issued by DDP can be traced. This
+# flag is only used when DDP module is compiled.
+# This is an experimental feature.
+ddp_python_hook = False
+
 # Whether to skip guarding on FSDP-managed modules
 skip_fsdp_guards = True
 
