@@ -395,6 +395,8 @@ class TorchHigherOrderOperatorVariable(VariableTracker):
             return ExportTracepointHigherOrderVariable(value, source, **kwargs)
         elif value.__name__ == "trace_wrapped":
             return TraceWrappedHigherOrderOperatorVariable(value, source, **kwargs)
+        elif value.__name__ == "strict_mode":
+            return StrictModeHigherOrderVariable(value, source, **kwargs)
         else:
             unimplemented(f"HigherOrderOperator {value.__name__}")
 
@@ -1336,6 +1338,71 @@ class OutDtypeHigherOrderVariable(TorchHigherOrderOperatorVariable):
                 kwargs={},
             ),
             example_value=example_value,
+        )
+
+
+class StrictModeHigherOrderVariable(TorchHigherOrderOperatorVariable):
+    def call_function(
+        self, tx, args: "List[VariableTracker]", kwargs: "Dict[str, VariableTracker]"
+    ) -> "VariableTracker":
+        from .builder import wrap_fx_proxy
+        callable = args[0]
+        graph_checkpoint, checkpoint = tx.output.graph, tx.copy_graphstate()
+        (ret_val, ret_treespec), ret_graph, ret_lifted_freevars, = speculate_subgraph(
+            tx,
+            args[0],
+            args[1].unpack_var_sequence(tx),
+            {},
+            "strict_mode",
+            source_target=self.value,
+            manually_set_subgraph_inputs=False,
+            should_flatten_outputs=True,
+        )
+
+
+        strict_mode_nn_modules = tx.copy_graphstate().output.nn_modules
+
+        strict_mode_name = add_subgraph(
+            tx,
+            self.source,
+            "strict_mode_body",
+            torch.fx.GraphModule(strict_mode_nn_modules.nn_modules, ret_graph),
+        )
+
+
+        strict_mode_node = make_attr(tx, strict_mode_name)
+        p_args = (
+            strict_mode_node,
+            tuple(arg for arg in ret_lifted_freevars.keys()),
+        )
+
+        flat_example_value = pytree.tree_map_only(
+            torch.fx.Proxy,
+            lambda a: a.node.meta["example_value"],
+            ret_val.as_proxy(),
+        )
+
+        # Store the invocation as a call
+        flat_variable = wrap_fx_proxy(
+            tx=tx,
+            proxy=tx.output.create_proxy(
+                "call_function",
+                torch.ops.higher_order.strict_mode,
+                args=tuple(p_args),
+                kwargs={},
+            ),
+            example_value=flat_example_value,
+        )
+
+        # Transform variable back into a list (previously made into a tuple by
+        # speculate_subgraph function) so as to respect the pytree API typing.
+        flat_list_variable = BuiltinVariable(list).call_function(
+            tx, [flat_variable], {}
+        )
+        return (
+            _make_inlined(tx, pytree.tree_unflatten)(flat_list_variable, ret_treespec)
+            if ret_treespec
+            else flat_variable
         )
 
 
