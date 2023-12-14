@@ -704,7 +704,6 @@ def reinplace_inplaceable_ops(graph):
 
             copy_args_to_copy_nodes[(dst, src)] = node
 
-            assert node.args[0].op == "placeholder"
             mutated_inputs.add(node.args[0])
 
     def any_use_of_views_after_node(node, shared_view_nodes, *, copy_node):
