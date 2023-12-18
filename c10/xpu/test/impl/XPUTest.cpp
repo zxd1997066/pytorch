@@ -56,13 +56,10 @@ TEST(XPUTest, PointerGetDevice) {
   sycl::device& raw_device = c10::xpu::xpuGetRawDevice(0);
   void* ptr =
       sycl::malloc_device(8, raw_device, c10::xpu::xpuGetDeviceContext());
-  c10::xpu::xpuPointerAttributes attr{};
-  c10::xpu::xpuPointerGetDevice(&attr, ptr);
-  ASSERT_EQ_XPU(attr.type, sycl::usm::alloc::device);
-  ASSERT_EQ_XPU(attr.device, 0);
+
+  ASSERT_EQ_XPU(c10::xpu::xpuPointerGetDevice(ptr), 0);
   sycl::free(ptr, c10::xpu::xpuGetDeviceContext());
 
   int dummy = 0;
-  c10::xpu::xpuPointerGetDevice(&attr, &dummy);
-  ASSERT_EQ_XPU(attr.type, sycl::usm::alloc::unknown);
+  ASSERT_THROW(at::xpu::xpuPointerGetDevice(&dummy), c10::Error);
 }

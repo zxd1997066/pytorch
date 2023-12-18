@@ -16,13 +16,11 @@ configure_file(
 # transitively passed on to all libraries dependent on PyTorch.
 set(C10_XPU_SRCS
     XPUFunctions.cpp
-    impl/XPUDeviceImpl.cpp
 )
 set(C10_XPU_HEADERS
     XPUFunctions.h
     XPUMacros.h
-    impl/XPUDeviceAttributes.h
-    impl/XPUDeviceImpl.h
+    XPUDeviceProp.h
 )
 
 add_library(c10_xpu ${C10_XPU_SRCS} ${C10_XPU_HEADERS})

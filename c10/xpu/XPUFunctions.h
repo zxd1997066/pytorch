@@ -1,7 +1,8 @@
 #pragma once
 
 #include <c10/core/Device.h>
-#include <c10/xpu/impl/XPUDeviceImpl.h>
+#include <c10/xpu/XPUDeviceProp.h>
+#include <c10/xpu/XPUMacros.h>
 
 // The naming convention used here matches the naming convention of torch.xpu
 
@@ -24,5 +25,13 @@ C10_XPU_API void set_device(DeviceIndex device);
 C10_XPU_API int ExchangeDevice(int device);
 
 C10_XPU_API int MaybeExchangeDevice(int to_device);
+
+C10_XPU_API sycl::device& xpuGetRawDevice(int device);
+
+C10_XPU_API sycl::context& xpuGetDeviceContext();
+
+C10_XPU_API void xpuGetDeviceProperties(xpuDeviceProp* device_prop, int device);
+
+C10_XPU_API int xpuPointerGetDevice(void* ptr);
 
 } // namespace c10::xpu

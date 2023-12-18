@@ -124,9 +124,4 @@ struct C10_XPU_API xpuDeviceProp {
   bool support_atomic64;
 };
 
-struct C10_XPU_API xpuPointerAttributes {
-  int device;
-  sycl::usm::alloc type;
-};
-
 } // namespace c10::xpu
