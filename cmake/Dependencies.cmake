@@ -105,6 +105,14 @@ if(USE_XPU)
   endif()
 endif()
 
+# Avoid building large binaries simultaneously containing CUDA and XPU or ROCM and XPU
+# despite these hardware being mutually exclusive.
+if((USE_CUDA OR USE_ROCM) AND USE_XPU)
+  message(WARNING "Not compiling with XPU. Suppress this warning with -DUSE_CUDA=OFF and -DUSE_ROCM=OFF.")
+  caffe2_update_option(USE_XPU OFF)
+  set(CAFFE2_USE_XPU OFF)
+endif
+
 # ---[ Custom Protobuf
 if(CAFFE2_CMAKE_BUILDING_WITH_MAIN_REPO AND NOT INTERN_BUILD_MOBILE)
   disable_ubsan()
