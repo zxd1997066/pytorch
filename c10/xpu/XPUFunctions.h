@@ -30,7 +30,7 @@ C10_XPU_API sycl::device& get_raw_device(int device);
 
 C10_XPU_API sycl::context& get_device_context();
 
-C10_XPU_API void get_device_properties(xpuDeviceProp* device_prop, int device);
+C10_XPU_API void get_device_properties(DeviceProp* device_prop, int device);
 
 C10_XPU_API int get_device_from_pointer(void* ptr);
 

@@ -46,7 +46,7 @@ TEST(XPUTest, DeviceProperties) {
     return;
   }
 
-  c10::xpu::xpuDeviceProp device_prop{};
+  c10::xpu::DeviceProp device_prop{};
   c10::xpu::get_device_properties(&device_prop, 0);
 
   ASSERT_TRUE(device_prop.gpu_eu_count > 0);

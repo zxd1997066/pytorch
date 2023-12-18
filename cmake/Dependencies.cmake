@@ -111,7 +111,7 @@ if((USE_CUDA OR USE_ROCM) AND USE_XPU)
   message(WARNING "Not compiling with XPU. Suppress this warning with -DUSE_CUDA=OFF and -DUSE_ROCM=OFF.")
   caffe2_update_option(USE_XPU OFF)
   set(CAFFE2_USE_XPU OFF)
-endif
+endif()
 
 # ---[ Custom Protobuf
 if(CAFFE2_CMAKE_BUILDING_WITH_MAIN_REPO AND NOT INTERN_BUILD_MOBILE)

@@ -5,7 +5,7 @@
 
 namespace c10::xpu {
 
-struct C10_XPU_API xpuDeviceProp {
+struct C10_XPU_API DeviceProp {
   // Returns the device name of this SYCL device.
   sycl::info::device::name::return_type device_name;
   // Returns the device type associated with the device.
@@ -120,8 +120,6 @@ struct C10_XPU_API xpuDeviceProp {
   // Returns the number of hardware threads per EU of GPU.
   sycl::ext::intel::info::device::gpu_hw_threads_per_eu::return_type
       gpu_hw_threads_per_eu;
-  bool support_fp64;
-  bool support_atomic64;
 };
 
 } // namespace c10::xpu
