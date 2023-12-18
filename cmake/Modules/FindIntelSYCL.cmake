@@ -31,10 +31,10 @@ endif()
 
 string(COMPARE EQUAL "${INTEL_SYCL_ROOT}" "" nosyclfound)
 if(nosyclfound)
-    set(IntelSYCL_FOUND False)
-    set(SYCL_REASON_FAILURE "Intel SYCL library not set!!")
-    set(IntelSYCL_NOT_FOUND_MESSAGE "${SYCL_REASON_FAILURE}")
-    return()
+  set(IntelSYCL_FOUND False)
+  set(SYCL_REASON_FAILURE "Intel SYCL library not set!!")
+  set(IntelSYCL_NOT_FOUND_MESSAGE "${SYCL_REASON_FAILURE}")
+  return()
 endif()
 
 # Find include path from binary.
