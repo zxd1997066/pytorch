@@ -13,6 +13,10 @@ bool has_xpu() {
 }
 
 TEST(XPUTest, DeviceCount) {
+  if (!has_xpu()) {
+    return;
+  }
+
 #ifndef _WIN32
   ASSERT_EQ_XPU(c10::xpu::device_count(), c10::xpu::prefetch_device_count());
 #endif
