@@ -144,40 +144,38 @@ static void initDeviceProperties(xpuDeviceProp* device_prop, int device) {
 
 } // anonymous namespace
 
-sycl::device& xpuGetRawDevice(int device) {
+sycl::device& get_raw_device(int device) {
   initDevicePoolCallOnce();
   TORCH_CHECK(
       device >= 0 && device < static_cast<int>(gDevicePool.devices.size()),
-      "xpuGetRawDevice: device is out of range.");
+      "get_raw_device: device is out of range.");
   return *gDevicePool.devices[device];
 }
 
-sycl::context& xpuGetDeviceContext() {
+sycl::context& get_device_context() {
   initDevicePoolCallOnce();
   return *gDevicePool.contexts;
 }
 
-void xpuGetDeviceProperties(xpuDeviceProp* device_prop, int device) {
+void get_device_properties(xpuDeviceProp* device_prop, int device) {
   initDevicePoolCallOnce();
   TORCH_CHECK(
-      device_prop,
-      "xpuGetDeviceProperties: device_prop is an invalid pointer.");
+      device_prop, "get_device_properties: device_prop is an invalid pointer.");
   TORCH_CHECK(
       device >= 0 && device < static_cast<int>(gDevicePool.devices.size()),
-      "xpuGetDeviceProperties: device is out of range.");
+      "get_device_properties: device is out of range.");
   initDeviceProperties(device_prop, device);
 }
 
-int xpuPointerGetDevice(void* ptr) {
+int get_device_from_pointer(void* ptr) {
   initDevicePoolCallOnce();
-  TORCH_CHECK(ptr, "xpuPointerGetDevice: ptr is an invalid pointer.");
-  auto type = sycl::get_pointer_type(ptr, xpuGetDeviceContext());
+  TORCH_CHECK(ptr, "get_device_from_pointer: ptr is an invalid pointer.");
+  auto type = sycl::get_pointer_type(ptr, get_device_context());
   TORCH_CHECK(
       type == sycl::usm::alloc::device,
-      "xpuPointerGetDevice: ptr is not a device type pointer.");
+      "get_device_from_pointer: ptr is not a device type pointer.");
 
-  sycl::device raw_device =
-      sycl::get_pointer_device(ptr, xpuGetDeviceContext());
+  sycl::device raw_device = sycl::get_pointer_device(ptr, get_device_context());
   auto match_device = [raw_device](const auto& device) -> bool {
     return raw_device == *device;
   };
@@ -215,7 +213,7 @@ void set_device(DeviceIndex device) {
   curDeviceIndex = device;
 }
 
-int ExchangeDevice(int to_device) {
+int exchange_device(int to_device) {
   int cur_device = static_cast<int>(current_device());
   if (to_device == cur_device) {
     return cur_device;
@@ -224,8 +222,8 @@ int ExchangeDevice(int to_device) {
   return cur_device;
 }
 
-int MaybeExchangeDevice(int to_device) {
-  return c10::xpu::ExchangeDevice(to_device);
+int maybe_exchange_device(int to_device) {
+  return c10::xpu::exchange_device(to_device);
 }
 
 /*

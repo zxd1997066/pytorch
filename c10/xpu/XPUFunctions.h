@@ -22,16 +22,16 @@ C10_XPU_API DeviceIndex current_device();
 
 C10_XPU_API void set_device(DeviceIndex device);
 
-C10_XPU_API int ExchangeDevice(int device);
+C10_XPU_API int exchange_device(int device);
 
-C10_XPU_API int MaybeExchangeDevice(int to_device);
+C10_XPU_API int maybe_exchange_device(int to_device);
 
-C10_XPU_API sycl::device& xpuGetRawDevice(int device);
+C10_XPU_API sycl::device& get_raw_device(int device);
 
-C10_XPU_API sycl::context& xpuGetDeviceContext();
+C10_XPU_API sycl::context& get_device_context();
 
-C10_XPU_API void xpuGetDeviceProperties(xpuDeviceProp* device_prop, int device);
+C10_XPU_API void get_device_properties(xpuDeviceProp* device_prop, int device);
 
-C10_XPU_API int xpuPointerGetDevice(void* ptr);
+C10_XPU_API int get_device_from_pointer(void* ptr);
 
 } // namespace c10::xpu

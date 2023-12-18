@@ -37,7 +37,7 @@ TEST(XPUTest, DeviceBehavior) {
 
   c10::xpu::set_device(1);
   ASSERT_EQ_XPU(c10::xpu::current_device(), 1);
-  ASSERT_EQ_XPU(c10::xpu::ExchangeDevice(0), 1);
+  ASSERT_EQ_XPU(c10::xpu::exchange_device(0), 1);
   ASSERT_EQ_XPU(c10::xpu::current_device(), 0);
 }
 
@@ -47,7 +47,7 @@ TEST(XPUTest, DeviceProperties) {
   }
 
   c10::xpu::xpuDeviceProp device_prop{};
-  c10::xpu::xpuGetDeviceProperties(&device_prop, 0);
+  c10::xpu::get_device_properties(&device_prop, 0);
 
   ASSERT_TRUE(device_prop.gpu_eu_count > 0);
 }
@@ -57,13 +57,13 @@ TEST(XPUTest, PointerGetDevice) {
     return;
   }
 
-  sycl::device& raw_device = c10::xpu::xpuGetRawDevice(0);
+  sycl::device& raw_device = c10::xpu::get_raw_device(0);
   void* ptr =
-      sycl::malloc_device(8, raw_device, c10::xpu::xpuGetDeviceContext());
+      sycl::malloc_device(8, raw_device, c10::xpu::get_device_context());
 
-  ASSERT_EQ_XPU(c10::xpu::xpuPointerGetDevice(ptr), 0);
-  sycl::free(ptr, c10::xpu::xpuGetDeviceContext());
+  ASSERT_EQ_XPU(c10::xpu::get_device_from_pointer(ptr), 0);
+  sycl::free(ptr, c10::xpu::get_device_context());
 
   int dummy = 0;
-  ASSERT_THROW(at::xpu::xpuPointerGetDevice(&dummy), c10::Error);
+  ASSERT_THROW(at::xpu::get_device_from_pointer(&dummy), c10::Error);
 }
