@@ -3275,7 +3275,6 @@ def _upsample_linear_vec(input, output_size, align_corners, scale_factors):
 
 @register_decomposition([aten.upsample_linear1d.default, aten.upsample_linear1d.out])
 @out_wrapper()
-@pw_cast_for_opmath
 def upsample_linear1d(
     input: Tensor,
     output_size: List[int],
@@ -3290,7 +3289,6 @@ def upsample_linear1d(
 )
 @aten.upsample_bilinear2d.default.py_impl(DispatchKey.Autograd)
 @out_wrapper()
-@pw_cast_for_opmath
 def upsample_bilinear2d(
     input: Tensor,
     output_size: List[int],
@@ -3305,7 +3303,6 @@ def upsample_bilinear2d(
     [aten.upsample_trilinear3d.default, aten.upsample_trilinear3d.out]
 )
 @out_wrapper()
-@pw_cast_for_opmath
 def upsample_trilinear3d(
     input: Tensor,
     output_size: List[int],
@@ -3333,6 +3330,7 @@ def _compute_source_index(scale, dst_index, align_corners):
         return scale * (dst_index + 0.5) - 0.5
 
 
+@pw_cast_for_opmath
 def _upsample_linear(
     input: Tensor,
     output_size: List[int],
@@ -3410,7 +3408,6 @@ def _upsample_linear(
     if not input.is_floating_point():
         result = result.round()
 
-    result = result.to(input.dtype)
     return result
 
 
