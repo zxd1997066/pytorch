@@ -165,24 +165,25 @@ sycl::device& get_raw_device(int device) {
 
 sycl::context& get_device_context() {
   initDevicePoolCallOnce();
+  TORCH_CHECK(
+      gDevicePool.context,
+      "Device pool initialization failed, you might not have an XPU device.")
   return *gDevicePool.context;
 }
 
 void get_device_properties(DeviceProp* device_prop, int device) {
   initDevicePoolCallOnce();
-  TORCH_CHECK(
-      device_prop, "get_device_properties: device_prop is an invalid pointer.");
+  TORCH_CHECK(device_prop, "device_prop is an invalid pointer.");
   check_device(device);
   initDeviceProperties(device_prop, device);
 }
 
 int get_device_from_pointer(void* ptr) {
   initDevicePoolCallOnce();
-  TORCH_CHECK(ptr, "get_device_from_pointer: ptr is an invalid pointer.");
+  TORCH_CHECK(ptr, "ptr is an invalid pointer.");
   auto type = sycl::get_pointer_type(ptr, get_device_context());
   TORCH_CHECK(
-      type == sycl::usm::alloc::device,
-      "get_device_from_pointer: ptr is not a device type pointer.");
+      type == sycl::usm::alloc::device, "ptr is not a device type pointer.");
 
   sycl::device raw_device = sycl::get_pointer_device(ptr, get_device_context());
   auto match_device = [raw_device](const auto& device) -> bool {
@@ -204,7 +205,7 @@ DeviceIndex device_count() {
 DeviceIndex device_count_ensure_non_zero() {
   auto count = device_count();
   // Zero gpus could produce a warning in `device_count` but we fail here
-  TORCH_CHECK(count, "No Intel GPUs are available");
+  TORCH_CHECK(count, "No XPU devices are available.");
   return count;
 }
 
