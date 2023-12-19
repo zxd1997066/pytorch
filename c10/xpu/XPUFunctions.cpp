@@ -190,13 +190,22 @@ bool prefetchDeviceCount(int* device_count) {
 #endif
 }
 
+static inline void check_device(int device) {
+  int total = static_cast<int>(gDevicePool.devices.size());
+  TORCH_CHECK(
+      device >= 0 && device < total,
+      "device is out of range, device is ",
+      device,
+      ", total number of device is ",
+      total,
+      ".");
+}
+
 } // anonymous namespace
 
 sycl::device& get_raw_device(int device) {
   initDevicePoolCallOnce();
-  TORCH_CHECK(
-      device >= 0 && device < static_cast<int>(gDevicePool.devices.size()),
-      "get_raw_device: device is out of range.");
+  check_device(device);
   return *gDevicePool.devices[device];
 }
 
@@ -209,9 +218,7 @@ void get_device_properties(DeviceProp* device_prop, int device) {
   initDevicePoolCallOnce();
   TORCH_CHECK(
       device_prop, "get_device_properties: device_prop is an invalid pointer.");
-  TORCH_CHECK(
-      device >= 0 && device < static_cast<int>(gDevicePool.devices.size()),
-      "get_device_properties: device is out of range.");
+  check_device(device);
   initDeviceProperties(device_prop, device);
 }
 
@@ -254,10 +261,7 @@ DeviceIndex current_device() {
 
 void set_device(DeviceIndex device) {
   initDevicePoolCallOnce();
-  TORCH_CHECK(
-      device >= 0 &&
-          device < static_cast<DeviceIndex>(gDevicePool.devices.size()),
-      "set_device: device is out of range.");
+  check_device(static_cast<int>(device));
   curDeviceIndex = device;
 }
 
