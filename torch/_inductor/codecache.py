@@ -1534,6 +1534,10 @@ class CudaKernelParamCache:
     def get(cls, key: str) -> Optional[Dict[str, str]]:
         return cls.cache.get(key, None)
 
+    @classmethod
+    def get_keys(cls):
+        return cls.cache.keys()
+
 
 class AotCodeCache:
     cache: Dict[str, str] = dict()
@@ -1637,7 +1641,9 @@ class AotCodeCache:
                         return bytes(raw_array.contents)
 
                     aot_constants = b"".join(
-                        _to_bytes(tensor) for tensor in graph.constants.values()
+                        _to_bytes(tensor)
+                        for name, tensor in graph.constants.items()
+                        if "_FOLDED_CONST_" not in name
                     )
 
                     consts_key, consts_path = write(
