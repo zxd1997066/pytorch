@@ -15,25 +15,25 @@
 # file Copyright.txt or https://cmake.org/licensing for details.
 
 # This will define the following variables:
-# IntelSYCL_FOUND          : True if the system has the SYCL library.
+# SYCL_FOUND               : True if the system has the SYCL library.
 # SYCL_INCLUDE_DIR         : Include directories needed to use SYCL.
 # SYCL_LIBRARY_DIR         ：The path to the SYCL library.
 # SYCL_LIBRARY             : SYCL library fullname.
 
 include(FindPackageHandleStandardArgs)
 
-set(INTEL_SYCL_ROOT "")
-if(DEFINED ENV{INTEL_SYCL_ROOT})
-  set(INTEL_SYCL_ROOT $ENV{INTEL_SYCL_ROOT})
+set(SYCL_ROOT "")
+if(DEFINED ENV{SYCL_ROOT})
+  set(SYCL_ROOT $ENV{SYCL_ROOT})
 elseif(DEFINED ENV{CMPLR_ROOT})
-  set(INTEL_SYCL_ROOT $ENV{CMPLR_ROOT})
+  set(SYCL_ROOT $ENV{CMPLR_ROOT})
 endif()
 
-string(COMPARE EQUAL "${INTEL_SYCL_ROOT}" "" nosyclfound)
+string(COMPARE EQUAL "${SYCL_ROOT}" "" nosyclfound)
 if(nosyclfound)
-  set(IntelSYCL_FOUND False)
-  set(SYCL_REASON_FAILURE "Intel SYCL library not set!!")
-  set(IntelSYCL_NOT_FOUND_MESSAGE "${SYCL_REASON_FAILURE}")
+  set(SYCL_FOUND False)
+  set(SYCL_REASON_FAILURE "SYCL library not set!!")
+  set(SYCL_NOT_FOUND_MESSAGE "${SYCL_REASON_FAILURE}")
   return()
 endif()
 
@@ -41,7 +41,7 @@ endif()
 find_file(
   SYCL_INCLUDE_DIR
   NAMES include
-  HINTS ${INTEL_SYCL_ROOT}
+  HINTS ${SYCL_ROOT}
   NO_DEFAULT_PATH
   )
 
@@ -49,7 +49,7 @@ find_file(
 find_file(
   SYCL_INCLUDE_SYCL_DIR
   NAMES sycl
-  HINTS ${INTEL_SYCL_ROOT}/include/
+  HINTS ${SYCL_ROOT}/include/
   NO_DEFAULT_PATH
   )
 
@@ -60,7 +60,7 @@ list(APPEND SYCL_INCLUDE_DIR ${SYCL_INCLUDE_SYCL_DIR})
 find_file(
   SYCL_LIBRARY_DIR
   NAMES lib lib64
-  HINTS ${INTEL_SYCL_ROOT}
+  HINTS ${SYCL_ROOT}
   NO_DEFAULT_PATH
   )
 
@@ -73,14 +73,14 @@ find_library(
 )
 
 if((NOT SYCL_INCLUDE_DIR) OR (NOT SYCL_LIBRARY_DIR) OR (NOT SYCL_LIBRARY))
-  set(IntelSYCL_FOUND False)
+  set(SYCL_FOUND False)
   set(SYCL_REASON_FAILURE "SYCL library is incomplete!!")
-  set(IntelSYCL_NOT_FOUND_MESSAGE "${SYCL_REASON_FAILURE}")
+  set(SYCL_NOT_FOUND_MESSAGE "${SYCL_REASON_FAILURE}")
   return()
 endif()
 
 find_package_handle_standard_args(
-  IntelSYCL
-  FOUND_VAR IntelSYCL_FOUND
+  SYCL
+  FOUND_VAR SYCL_FOUND
   REQUIRED_VARS SYCL_INCLUDE_DIR SYCL_LIBRARY_DIR SYCL_LIBRARY
   REASON_FAILURE_MESSAGE "${SYCL_REASON_FAILURE}")

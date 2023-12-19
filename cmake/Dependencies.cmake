@@ -98,19 +98,11 @@ if(USE_XPU)
   set(CAFFE2_USE_XPU ${USE_XPU})
   include(${CMAKE_CURRENT_LIST_DIR}/public/xpu.cmake)
   if(NOT CAFFE2_USE_XPU)
-    message(WARNING "Not compiling with XPU. Could NOT find SYCL (${IntelSYCL_NOT_FOUND_MESSAGE})."
+    message(WARNING "Not compiling with XPU. Could NOT find SYCL."
     "Suppress this warning with -DUSE_XPU=OFF.")
     caffe2_update_option(USE_XPU OFF)
     set(CAFFE2_USE_XPU OFF)
   endif()
-endif()
-
-# Avoid building large binaries simultaneously containing CUDA and XPU or ROCM and XPU
-# despite these hardware being mutually exclusive.
-if((USE_CUDA OR USE_ROCM) AND USE_XPU)
-  message(WARNING "Not compiling with XPU. Suppress this warning with -DUSE_CUDA=OFF and -DUSE_ROCM=OFF.")
-  caffe2_update_option(USE_XPU OFF)
-  set(CAFFE2_USE_XPU OFF)
 endif()
 
 # ---[ Custom Protobuf

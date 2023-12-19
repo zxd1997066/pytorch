@@ -65,6 +65,7 @@ static inline void initGlobalDevicePoolState() {
   auto device_count = deviceCountImpl(gDevicePool.devices);
   if (device_count <= 0) {
     TORCH_WARN("XPU device count is zero!");
+    return;
   }
 
   // Here we use default context for each Intel GPU device. So we can fetch the
@@ -141,56 +142,6 @@ static void initDeviceProperties(DeviceProp* device_prop, int device) {
       : 8;
   // clang-format on
   return;
-}
-
-/*
- * Note [Runtime in Multiprocessing]
- *
- * We have known the limitation of fork support in SYCL runtime. If we call
- * runtime APIs in parent process, then fork a child process, there will be an
- * error in runtime if submit any kernel in parent process or child process.
- *
- * In general, SYCL runtime initialization must be called after fork, not
- * before. So we have to call runtime APIs using another fork, pipe the result
- * back to the parent, and then fork the actual child process.
- *
- * We have to fork another child process first. Then query device count using
- * SYCL runtime APIs. Finally pipe the result to parent process. Now we can
- * check if XPU device is available and fork the actual child process to do the
- * calculation.
- */
-
-bool prefetchDeviceCount(int* device_count) {
-#ifndef _WIN32
-  std::array<int, 1> buffer;
-  std::array<int, 2> pipefd;
-  if (pipe(pipefd.data()) != 0) {
-    return false;
-  }
-
-  // See Note [Runtime in Multiprocessing].
-  int pid = fork();
-  if (pid < 0) {
-    return false;
-  } else if (pid == 0) { // child process
-    std::vector<std::unique_ptr<sycl::device>> devices;
-    buffer[0] = deviceCountImpl(devices);
-    close(pipefd[0]);
-    write(pipefd[1], buffer.data(), sizeof(buffer));
-    close(pipefd[1]);
-    _exit(0);
-  } else { // parent process
-    wait(NULL);
-    close(pipefd[1]);
-    read(pipefd[0], buffer.data(), sizeof(buffer));
-    close(pipefd[0]);
-  }
-
-  *device_count = buffer[0];
-  return true;
-#else
-  return false;
-#endif
 }
 
 static inline void check_device(int device) {
@@ -279,17 +230,6 @@ int exchange_device(int to_device) {
 
 int maybe_exchange_device(int to_device) {
   return c10::xpu::exchange_device(to_device);
-}
-
-// This function is used in torch.xpu.device_count() and
-// torch.xpu.is_avaialble() such that both two functions can be called in case
-// fork poisoning.
-DeviceIndex prefetch_device_count() {
-  int count = 0;
-  if (prefetchDeviceCount(&count)) {
-    return static_cast<DeviceIndex>(count);
-  }
-  return -1;
 }
 
 } // namespace c10::xpu
