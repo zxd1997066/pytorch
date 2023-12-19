@@ -10,7 +10,7 @@ struct C10_XPU_API DeviceProp {
   sycl::info::device::name::return_type device_name;
   // Returns the device type associated with the device.
   sycl::info::device::device_type::return_type device_type;
-  // Returns the platform info.
+  // Returns the platform name.
   sycl::info::platform::name::return_type platform_name;
   // Returns the vendor of this SYCL device.
   sycl::info::device::vendor::return_type vendor;

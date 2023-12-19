@@ -32,7 +32,7 @@ static thread_local DeviceIndex curDeviceIndex = 0;
 
 struct DevicePool {
   std::vector<std::unique_ptr<sycl::device>> devices;
-  std::unique_ptr<sycl::context> contexts;
+  std::unique_ptr<sycl::context> context;
 } gDevicePool;
 
 static void enumDevices(std::vector<std::unique_ptr<sycl::device>>& devices) {
@@ -64,9 +64,9 @@ static inline void initGlobalDevicePoolState() {
     TORCH_WARN("XPU device count is zero!");
   }
 
-  // Here we use default context provided by Intel oneapi extension for each
-  // Intel GPU device.
-  gDevicePool.contexts = std::make_unique<sycl::context>(
+  // Here we use default context for each Intel GPU device. So we can fetch the
+  // context from any GPU device. We use device 0 here.
+  gDevicePool.context = std::make_unique<sycl::context>(
       gDevicePool.devices[0]->get_platform().ext_oneapi_get_default_context());
 }
 
@@ -202,7 +202,7 @@ sycl::device& get_raw_device(int device) {
 
 sycl::context& get_device_context() {
   initDevicePoolCallOnce();
-  return *gDevicePool.contexts;
+  return *gDevicePool.context;
 }
 
 void get_device_properties(DeviceProp* device_prop, int device) {
@@ -229,10 +229,10 @@ int get_device_from_pointer(void* ptr) {
   };
   auto it = std::find_if(
       gDevicePool.devices.begin(), gDevicePool.devices.end(), match_device);
-  if (it != gDevicePool.devices.end()) {
-    return static_cast<int>(std::distance(gDevicePool.devices.begin(), it));
-  }
-  TORCH_CHECK(false, "Cant't find the pointer from XPU devices.");
+  TORCH_CHECK(
+      it != gDevicePool.devices.end(),
+      "Cant't find the pointer from XPU devices.");
+  return static_cast<int>(std::distance(gDevicePool.devices.begin(), it));
 }
 
 DeviceIndex device_count() {
