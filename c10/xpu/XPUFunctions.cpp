@@ -17,13 +17,16 @@ namespace {
 /*
  * Note [Device Management]
  *
- * Intel GPU device is based on sycl::device enumerated via SYCL runtime and
- * device runtime status can be managed via a sycl device pool. The number of
+ * An Intel GPU device qualifies as a type of SYCL device. This classification
+ * allows for the runtime querying of Intel GPU device information through the
+ * SYCL runtime library.
+ *
+ * Device runtime status can be managed via a sycl device pool. The number of
  * GPU devices is determined at run time.
  *
  * Currently, there is one SYCL device pool and the device pool is lazily
- * created only once. The device management mechanism is thread local safe.
- * The same default sycl context can shared for each sycl device.
+ * created only once, which is thread local safe. The same default sycl context
+ * can shared for each sycl device.
  *
  * Device properties are initialized via the specific raw device.
  */
@@ -123,7 +126,7 @@ static void initDeviceProperties(DeviceProp* device_prop, int device) {
   device_prop->native_vec_width_float = raw_device.get_info<device::native_vector_width_float>();
   device_prop->native_vec_width_double = raw_device.get_info<device::native_vector_width_double>();
   device_prop->native_vec_width_half = raw_device.get_info<device::native_vector_width_half>();
-  // Intel extension
+
   device_prop->gpu_eu_count = raw_device.has(sycl::aspect::ext_intel_gpu_eu_count)
       ? raw_device.get_info<intel::info::device::gpu_eu_count>()
       : 512;
@@ -278,6 +281,9 @@ int maybe_exchange_device(int to_device) {
   return c10::xpu::exchange_device(to_device);
 }
 
+// This function is used in torch.xpu.device_count() and
+// torch.xpu.is_avaialble() such that both two functions can be called in case
+// fork poisoning.
 DeviceIndex prefetch_device_count() {
   int count = 0;
   if (prefetchDeviceCount(&count)) {

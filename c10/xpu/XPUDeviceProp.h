@@ -108,7 +108,7 @@ struct C10_XPU_API DeviceProp {
       native_vec_width_double;
   sycl::info::device::native_vector_width_half::return_type
       native_vec_width_half;
-  // Intel extension
+
   // Returns the number of EUs associated with the Intel GPU.
   sycl::ext::intel::info::device::gpu_eu_count::return_type gpu_eu_count;
   // Returns the number of EUs in a subslice.

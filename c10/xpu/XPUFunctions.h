@@ -15,7 +15,7 @@ C10_XPU_API DeviceIndex device_count();
 C10_XPU_API DeviceIndex device_count_ensure_non_zero();
 
 // If this function fails, return -1. Otherwise, return the number of Intel GPUs
-// without the limitation of SYCL runtime in multi-processing.
+// in case fork poisoning.
 C10_XPU_API DeviceIndex prefetch_device_count();
 
 C10_XPU_API DeviceIndex current_device();

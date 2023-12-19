@@ -1,7 +1,7 @@
 # ---[ Test binaries.
 
 set(C10_XPU_ALL_TEST_FILES
-    impl/XPUTest.cpp
+    impl/XPUDeviceTest.cpp
 )
 if(BUILD_TEST)
   foreach(test_src ${C10_XPU_ALL_TEST_FILES})

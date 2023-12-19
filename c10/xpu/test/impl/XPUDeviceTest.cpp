@@ -12,7 +12,7 @@ bool has_xpu() {
   return c10::xpu::device_count() > 0;
 }
 
-TEST(XPUTest, DeviceCount) {
+TEST(XPUDeviceTest, DeviceCount) {
   if (!has_xpu()) {
     return;
   }
@@ -23,7 +23,7 @@ TEST(XPUTest, DeviceCount) {
   return;
 }
 
-TEST(XPUTest, DeviceBehavior) {
+TEST(XPUDeviceTest, DeviceBehavior) {
   if (!has_xpu()) {
     return;
   }
@@ -41,7 +41,7 @@ TEST(XPUTest, DeviceBehavior) {
   ASSERT_EQ_XPU(c10::xpu::current_device(), 0);
 }
 
-TEST(XPUTest, DeviceProperties) {
+TEST(XPUDeviceTest, DeviceProperties) {
   if (!has_xpu()) {
     return;
   }
@@ -52,7 +52,7 @@ TEST(XPUTest, DeviceProperties) {
   ASSERT_TRUE(device_prop.gpu_eu_count > 0);
 }
 
-TEST(XPUTest, PointerGetDevice) {
+TEST(XPUDeviceTest, PointerGetDevice) {
   if (!has_xpu()) {
     return;
   }
