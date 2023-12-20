@@ -5,7 +5,7 @@ if(TARGET torch::xpurt)
   return()
 endif()
 
-# Find SYCL Library.
+# Find SYCL library.
 find_package(SYCLToolkit REQUIRED)
 if(NOT SYCL_FOUND)
   set(CAFFE2_USE_XPU OFF)
