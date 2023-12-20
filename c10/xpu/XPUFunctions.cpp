@@ -21,14 +21,11 @@ namespace {
  * allows for the runtime querying of Intel GPU device information through the
  * SYCL runtime library.
  *
- * Device runtime status can be managed via a sycl device pool. The number of
- * GPU devices is determined at run time.
- *
- * Currently, there is one SYCL device pool and the device pool is lazily
- * created only once, which is thread local safe. The same default sycl context
- * can shared for each sycl device.
- *
- * Device properties are initialized via the specific raw device.
+ * Device status is managed through a SYCL device pool, with the number of GPU
+ * devices determined at runtime. Currently, there's a single SYCL device pool,
+ * created lazily only once, ensuring thread-local safety. The same default SYCL
+ * context can be shared for each SYCL device, and device properties are
+ * initialized via the specific raw device.
  */
 static c10::once_flag init_flag;
 static thread_local DeviceIndex curDeviceIndex = 0;
@@ -68,8 +65,8 @@ static inline void initGlobalDevicePoolState() {
     return;
   }
 
-  // Here we use default context for each Intel GPU device. So we can fetch the
-  // context from any GPU device. We use device 0 here.
+  // The default context is utilized for each Intel GPU device, allowing the
+  // retrieval of the context from any GPU device.
   gDevicePool.context = std::make_unique<sycl::context>(
       gDevicePool.devices[0]->get_platform().ext_oneapi_get_default_context());
 }
@@ -204,7 +201,7 @@ DeviceIndex device_count() {
 
 DeviceIndex device_count_ensure_non_zero() {
   auto count = device_count();
-  // Zero gpus could produce a warning in `device_count` but we fail here
+  // Zero gpus could produce a warning in `device_count` but we fail here.
   TORCH_CHECK(count, "No XPU devices are available.");
   return count;
 }
