@@ -21,11 +21,10 @@ namespace {
  * allows for the runtime querying of Intel GPU device information through the
  * SYCL runtime library.
  *
- * Device status is managed through a SYCL device pool, with the number of GPU
- * devices determined at runtime. Currently, there's a single SYCL device pool,
- * created lazily only once, ensuring thread-local safety. The same default SYCL
- * context can be shared for each SYCL device, and device properties are
- * initialized via the specific raw device.
+ * Device status is managed through a SYCL device pool, with SYCL devices
+ * determined at runtime. There's currently a SYCL device pool that is lazily
+ * created and only initialized once, ensuring thread-local safety. Each device
+ * within the device pool shares the same default context.
  */
 static c10::once_flag init_flag;
 static thread_local DeviceIndex curDeviceIndex = 0;
