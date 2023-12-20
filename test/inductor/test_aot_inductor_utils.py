@@ -34,41 +34,39 @@ class AOTInductorModelRunner:
         return so_path
 
     @classmethod
-    def load(cls, device, so_path, example_inputs):
+    def load_module(cls, device, so_path):
         if IS_FBCODE:
             from .fb import test_aot_inductor_model_runner_pybind
 
-            module = test_aot_inductor_model_runner_pybind.Runner(
+            return test_aot_inductor_model_runner_pybind.Runner(
                 so_path, device == "cpu"
             )
-
-            call_spec = module.get_call_spec()
-            in_spec = pytree.treespec_loads(call_spec[0])
-            out_spec = pytree.treespec_loads(call_spec[1])
-
-            def optimized(*args):
-                flat_inputs = fx_pytree.tree_flatten_spec((*args, {}), in_spec)
-                flat_outputs = module.run(flat_inputs)
-                return pytree.tree_unflatten(flat_outputs, out_spec)
-
         else:
-            module = torch.utils.cpp_extension.load_inline(
+            return torch.utils.cpp_extension.load_inline(
                 name="aot_inductor",
                 cpp_sources=[aot_inductor_launcher(so_path, device)],
                 # use a unique build directory to avoid test interference
                 build_directory=tempfile.mkdtemp(dir=cache_dir()),
-                functions=["run", "get_call_spec"],
+                functions=[
+                    "run",
+                    "get_call_spec",
+                    "get_constant_names_to_original_fqns",
+                ],
                 with_cuda=(device == "cuda"),
             )
 
-            call_spec = module.get_call_spec()
-            in_spec = pytree.treespec_loads(call_spec[0])
-            out_spec = pytree.treespec_loads(call_spec[1])
+    @classmethod
+    def load(cls, device, so_path, example_inputs):
+        module = AOTInductorModelRunner.load_module(device, so_path)
 
-            def optimized(*args):
-                flat_inputs = fx_pytree.tree_flatten_spec((*args, {}), in_spec)
-                flat_outputs = module.run(flat_inputs)
-                return pytree.tree_unflatten(flat_outputs, out_spec)
+        call_spec = module.get_call_spec()
+        in_spec = pytree.treespec_loads(call_spec[0])
+        out_spec = pytree.treespec_loads(call_spec[1])
+
+        def optimized(*args):
+            flat_inputs = fx_pytree.tree_flatten_spec((*args, {}), in_spec)
+            flat_outputs = module.run(flat_inputs)
+            return pytree.tree_unflatten(flat_outputs, out_spec)
 
         return optimized
 
