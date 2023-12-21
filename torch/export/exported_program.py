@@ -102,8 +102,8 @@ class ExportedProgram:
         graph_signature: ExportGraphSignature,
         state_dict: Dict[str, Union[torch.Tensor, torch.nn.Parameter]],
         range_constraints: "Dict[sympy.Symbol, Any]",
-        equality_constraints: List[Tuple[Any, Any]],
-        module_call_graph: List[ModuleCallEntry],
+        equality_constraints: Optional[List[Tuple[Any, Any]]] = None,
+        module_call_graph: Optional[List[ModuleCallEntry]] = None,
         example_inputs: Optional[Tuple[Tuple[Any, ...], Dict[str, Any]]] = None,
         verifier: Optional[Type[Any]] = None,  # TODO Change typing hint to Verifier.
         tensor_constants: Optional[Dict[str, torch.Tensor]] = None,
@@ -122,10 +122,10 @@ class ExportedProgram:
         self._graph_signature: ExportGraphSignature = graph_signature
         self._state_dict: Dict[str, Any] = state_dict
         self._range_constraints: "Dict[sympy.Symbol, ValueRanges]" = range_constraints
-        self._equality_constraints: List[
-            Tuple[InputDim, InputDim]
-        ] = equality_constraints
-        self._module_call_graph: List[ModuleCallEntry] = module_call_graph
+        self._equality_constraints: List[Tuple[InputDim, InputDim]] = (
+            equality_constraints or []
+        )
+        self._module_call_graph: List[ModuleCallEntry] = module_call_graph or []
         self._example_inputs = example_inputs
 
         self._tensor_constants = tensor_constants or {}
