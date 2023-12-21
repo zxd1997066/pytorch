@@ -55,6 +55,7 @@ class UserDefinedClassVariable(UserDefinedVariable):
     def var_getattr(self, tx, name: str) -> "VariableTracker":
         from . import ConstantVariable
         from .builder import VariableBuilder
+        from .distributed import ProcessGroupVariable
 
         source = AttrSource(self.source, name) if self.source is not None else None
         try:
@@ -87,6 +88,11 @@ class UserDefinedClassVariable(UserDefinedVariable):
             elif ConstantVariable.is_literal(obj):
                 return ConstantVariable.create(obj)
 
+        if (
+            name == "WORLD"
+            and self.value is torch.distributed.distributed_c10d.GroupMember
+        ):
+            return ProcessGroupVariable(self.value.WORLD)
         return super().var_getattr(tx, name)
 
     def call_method(
@@ -265,6 +271,11 @@ class UserDefinedObjectVariable(UserDefinedVariable):
         super().__init__(**kwargs)
         self.value = value
         self.value_type = value_type or type(value)
+        if (
+            getattr(self.value, "_is_fsdp_managed_module", False)
+            and type(self) == UserDefinedObjectVariable
+        ):
+            raise RuntimeError(f"Cant make fsdp module as UDO {type(self)}")
         assert type(value) is self.value_type
 
     def __str__(self):
@@ -509,6 +520,7 @@ class UserDefinedObjectVariable(UserDefinedVariable):
             return variables.TorchVariable(self.value.func).call_function(
                 tx, partial_args, partial_kwargs
             )
+
         elif callable(self.value):
             if self.source:
                 install_guard(self.source.make_guard(GuardBuilder.FUNCTION_MATCH))
@@ -517,10 +529,16 @@ class UserDefinedObjectVariable(UserDefinedVariable):
         return super().call_function(tx, args, kwargs)
 
     def _check_for_getattribute(self):
+        # Hack - we know this is sound because of the contents of this fn and how we inline
+        if isinstance(self, variables.nn_module.FSDPManagedNNModuleVariable):
+            return
         if object_has_getattribute(self.value):
             unimplemented("UserDefinedObjectVariable with custom __getattribute__")
 
     def _check_for_getattr(self):
+        # Hack - we know this is sound because of the contents of this fn and how we inline
+        if isinstance(self, variables.nn_module.FSDPManagedNNModuleVariable):
+            return None
         return get_custom_getattr(self.value)
 
     def _getattr_static(self, name):
@@ -547,6 +565,18 @@ class UserDefinedObjectVariable(UserDefinedVariable):
         class NO_SUCH_SUBOBJ:
             pass
 
+        def _is_dynamic_subobj(subobj):
+            if isinstance(subobj, types.FunctionType):
+                return True
+            if isinstance(subobj, types.MethodType):
+                if torch.distributed.is_available() and isinstance(
+                    self.value, torch.distributed.fsdp._flat_param.FlatParamHandle
+                ):
+                    return True
+                if isinstance(self.value, torch.nn.Module):
+                    return True
+            return False
+
         try:
             subobj = self._getattr_static(name)
         except AttributeError:
@@ -557,7 +587,6 @@ class UserDefinedObjectVariable(UserDefinedVariable):
                 ).call_function(tx, [ConstantVariable.create(name)], {})
             elif getattr_fn is not None:
                 unimplemented("UserDefined with non-function __getattr__")
-
         if isinstance(subobj, property):
             return variables.UserMethodVariable(
                 subobj.fget, self, source=source
@@ -573,10 +602,7 @@ class UserDefinedObjectVariable(UserDefinedVariable):
             )
         elif isinstance(subobj, classmethod):
             return variables.UserMethodVariable(subobj.__func__, self, source=source)
-        elif isinstance(subobj, types.FunctionType) or (
-            isinstance(subobj, types.MethodType)
-            and isinstance(self.value, torch.nn.Module)
-        ):
+        elif _is_dynamic_subobj(subobj):
             # Since we get subobj via self._getattr_static, which may not trigger dynamic lookup.
             # Static lookup can't tell us it's a method or function correctly,
             # so we trigger dynamic lookup here to get the correct type.
@@ -659,6 +685,14 @@ class UserDefinedObjectVariable(UserDefinedVariable):
         if name == "__class__":
             return UserDefinedClassVariable(type(self.value), **options)
 
+        if source:
+            return VariableBuilder(tx, source)(subobj)
+        if torch.distributed.is_available():
+            if (
+                subobj.__class__.__name__
+                == "torch.distributed.fsdp._flat_param.FlatParamHandle"
+            ):
+                return UserDefinedObjectVariable(subobj, **options)
         return variables.GetAttrVariable(self, name, **options)
 
     def call_hasattr(self, tx, name: str) -> "VariableTracker":
@@ -675,7 +709,7 @@ class UserDefinedObjectVariable(UserDefinedVariable):
                 AttrSource(self.source, name).make_guard(GuardBuilder.HASATTR)
             )
         if self._check_for_getattribute() or self._check_for_getattr():
-            unimplemented("hasattr with custom __getattr__")
+            unimplemented(f"hasattr with custom __getattr__ hasattr({self}, {name})")
 
         try:
             self._getattr_static(name)
@@ -689,7 +723,7 @@ class UserDefinedObjectVariable(UserDefinedVariable):
         index = (
             key.source
             if ConstDictVariable.is_valid_key(key) and key.source is not None
-            else key.as_python_constant()
+            else key.value
         )
 
         return VariableBuilder(
