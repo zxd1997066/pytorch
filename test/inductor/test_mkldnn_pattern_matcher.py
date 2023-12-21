@@ -1072,14 +1072,16 @@ class TestPatternMatcher(TestPatternMatcherBase):
         """
         self._qlinear_cpu_test_helper((torch.randn((2, 3, 4)),), int8_mixed_bf16=True)
 
-    def _qlinear_unary_cpu_test_helper(self, inputs, int8_mixed_bf16=False):
+    def _qlinear_unary_cpu_test_helper(
+        self, inputs, unary_op=torch.nn.ReLU(), int8_mixed_bf16=False
+    ):
         class M(torch.nn.Module):
             def __init__(self, use_bias):
                 super().__init__()
                 self.linear = torch.nn.Linear(4, 4, use_bias)
-                self.unary_fn = torch.nn.ReLU()
+                self.unary_fn = copy.deepcopy(unary_op)
                 self.linear2 = torch.nn.Linear(4, 4, use_bias)
-                self.unary_fn2 = torch.nn.ReLU()
+                self.unary_fn2 = copy.deepcopy(unary_op)
 
             def forward(self, x):
                 tmp = self.unary_fn(self.linear(x))
@@ -1146,6 +1148,16 @@ class TestPatternMatcher(TestPatternMatcherBase):
         self._qlinear_unary_cpu_test_helper(
             (torch.randn((2, 3, 4)),), int8_mixed_bf16=True
         )
+
+    @skipIfNoDynamoSupport
+    @skipIfNoONEDNN
+    @skipIfRocm
+    def test_qlinear_gelu_cpu(self):
+        r"""
+        This testcase will quantize a Linear->GELU pattern.
+        """
+        for gelu in [torch.nn.GELU("none"), torch.nn.GELU("tanh")]:
+            self._qlinear_unary_cpu_test_helper((torch.randn((2, 4)),), gelu)
 
     def _qlinear_dequant_promotion_cpu_test_helper(self, inputs, int8_mixed_bf16=False):
         class M(torch.nn.Module):
