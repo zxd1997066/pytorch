@@ -1979,6 +1979,16 @@ def forward(self, l_x_):
         self.assertEqual(a.size(), torch.Size([3, 4]))
         self.assertEqual(b.size(), torch.Size([3, 4]))
 
+    def test_pad_sequence(self):
+        class Module(torch.nn.Module):
+            def forward(self, x):
+                return torch._C._nn.pad_sequence([x])
+
+        m = Module()
+        inputs = (torch.randn(3, 2),)
+        ep = torch.export.export(m, inputs, dynamic_shapes={"x": {0: Dim("batch_size")}})
+        self.assertEqual(ep(*inputs), m(*inputs))
+
     def test_export_then_compile_tensor_ctor(self):
         class M(torch.nn.Module):
             def __init__(self,):
