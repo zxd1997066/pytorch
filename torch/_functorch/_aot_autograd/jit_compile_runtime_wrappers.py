@@ -385,7 +385,7 @@ def aot_dispatch_autograd(
 
         @staticmethod
         def _compiled_autograd_key(ctx):
-            return (aot_config.aot_id, *ctx.symints)
+            return (ctx._autograd_function_id, *ctx.symints)
 
         @staticmethod
         def forward(ctx, *deduped_flat_tensor_args):
@@ -744,7 +744,7 @@ Got grad_output types: {str(grad_output_types)}"""
                             "torch.compile with aot_autograd does not currently support double backward"
                         )
 
-                CompiledFunctionBackward._compiled_autograd_key = (  # type: ignore[attr-defined]
+                CompiledFunctionBackward._compiled_autograd_key = (  # type: ignore[method-assign]
                     CompiledFunction._compiled_autograd_key
                 )
 
