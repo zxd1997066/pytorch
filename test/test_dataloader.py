@@ -35,7 +35,7 @@ from torch._utils import ExceptionWrapper
 from torch.testing._internal.common_utils import (TestCase, run_tests, TEST_NUMPY, IS_WINDOWS, IS_JETSON,
                                                   IS_CI, NO_MULTIPROCESSING_SPAWN, skipIfRocm, slowTest,
                                                   load_tests, TEST_WITH_ASAN, TEST_WITH_TSAN, IS_SANDCASTLE,
-                                                  IS_MACOS, TEST_CUDA, parametrize)
+                                                  IS_MACOS, TEST_CUDA, parametrize, TEST_DILL)
 from torch.testing._internal.common_device_type import instantiate_device_type_tests
 import functools
 import operator
@@ -52,18 +52,6 @@ except ImportError:
         raise ImportError(err_msg) from None
     else:
         warnings.warn(err_msg)
-
-try:
-    import dill
-    # XXX: By default, dill writes the Pickler dispatch table to inject its
-    # own logic there. This globally affects the behavior of the standard library
-    # pickler for any user who transitively depends on this module!
-    # Undo this extension to avoid altering the behavior of the pickler globally.
-    dill.extend(use_dill=False)
-    HAS_DILL = True
-except ImportError:
-    HAS_DILL = False
-skipIfNoDill = unittest.skipIf(not HAS_DILL, "no dill")
 
 
 try:
@@ -1598,7 +1586,7 @@ except RuntimeError as e:
                      torch.as_tensor([[2, 3, 4, 5]], dtype=torch.int64)]
         datapipe: IterDataPipe = IterableWrapper([[1, 2, 3, 4], [1, 2, 3, 4, 5, 6]])
         datapipe = datapipe.map(row_processor)
-        datapipe = datapipe.filter(lambda row: len(row) == 4) if HAS_DILL else datapipe.filter(filter_len)
+        datapipe = datapipe.filter(lambda row: len(row) == 4) if TEST_DILL else datapipe.filter(filter_len)
 
         dl_common_args = dict(num_workers=2, batch_size=2, shuffle=True, pin_memory=(not TEST_CUDA))
         for ctx in supported_multiprocessing_contexts:
