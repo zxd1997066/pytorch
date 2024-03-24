@@ -2668,7 +2668,7 @@ class BenchmarkRunner:
             eager_latency, eager_peak_mem, _ = warmup(
                 self.model_iter_fn, model, example_inputs, "eager"
             )
-            print("eager:"eager_latency)
+            print(eager_latency)
             if self.args.export_aot_inductor:
                 t_0 = time.perf_counter()
                 optimized_model_iter_fn = optimize_ctx
