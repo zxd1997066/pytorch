@@ -2698,10 +2698,10 @@ class BenchmarkRunner:
                 )
                 dynamo_cache_lookup_latency = events[0].self_cpu_time_total
 
-            compilation_time = dynamo_latency - eager_latency + aot_compilation_time
-            compression_ratio = (
-                eager_peak_mem / dynamo_peak_mem if dynamo_peak_mem else 0.0
-            )
+            # compilation_time = dynamo_latency - eager_latency + aot_compilation_time
+            # compression_ratio = (
+            #     eager_peak_mem / dynamo_peak_mem if dynamo_peak_mem else 0.0
+            # )
             if self.args.print_memory:
                 print(
                     f"memory: eager: {eager_peak_mem:.2f} GB, "
@@ -2712,16 +2712,16 @@ class BenchmarkRunner:
             if self.args.print_compilation_time:
                 print(f"Compilation time: {compilation_time:.2f}")
 
-            if experiment.func is speedup_experiment:
-                experiment_kwargs["compilation_latency"] = compilation_time
-                experiment_kwargs["compression_ratio"] = compression_ratio
-                experiment_kwargs["eager_peak_mem"] = eager_peak_mem
-                experiment_kwargs["dynamo_peak_mem"] = dynamo_peak_mem
-                experiment_kwargs["dynamo_stats"] = dynamo_stats
-                if self.args.profile_dynamo_cache_lookup:
-                    experiment_kwargs[
-                        "cache_lookup_latency"
-                    ] = dynamo_cache_lookup_latency
+            # if experiment.func is speedup_experiment:
+            #     experiment_kwargs["compilation_latency"] = compilation_time
+            #     experiment_kwargs["compression_ratio"] = compression_ratio
+            #     experiment_kwargs["eager_peak_mem"] = eager_peak_mem
+            #     experiment_kwargs["dynamo_peak_mem"] = dynamo_peak_mem
+            #     experiment_kwargs["dynamo_stats"] = dynamo_stats
+            #     if self.args.profile_dynamo_cache_lookup:
+            #         experiment_kwargs[
+            #             "cache_lookup_latency"
+            #         ] = dynamo_cache_lookup_latency
 
             if experiment.func is coverage_experiment:
                 ok, total = Stats.reset_counters()
