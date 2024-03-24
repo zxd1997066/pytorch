@@ -2816,7 +2816,7 @@ class BenchmarkRunner:
             status = self.run_performance_test(
                 name, model, example_inputs, optimize_ctx, experiment, tag
             )
-            print(status)
+            # print(status)
         torch.cuda.empty_cache()
 
         if self.args.timing:
