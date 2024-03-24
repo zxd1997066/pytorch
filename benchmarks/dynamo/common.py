@@ -2740,10 +2740,10 @@ class BenchmarkRunner:
                     f"{ok:3}/{total:3} +{frames_third_pass} frames {compilation_time:3.0f}s"
                 )
 
-            if experiment.func is speedup_experiment_onnx:
-                experiment = functools.partial(
-                    experiment, optimized_model_iter_fn.context.onnx_model
-                )
+            # if experiment.func is speedup_experiment_onnx:
+            #     experiment = functools.partial(
+            #         experiment, optimized_model_iter_fn.context.onnx_model
+            #     )
 
             if not hasattr(model, name):
                 model.name = name
