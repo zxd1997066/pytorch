@@ -2627,7 +2627,7 @@ class BenchmarkRunner:
             with self.pick_grad(name, self.args.training):
                 return experiment(*self.maybe_cast(model, example_inputs))
 
-        def warmup(fn, model, example_inputs, mode, niters=5):
+        def warmup(fn, model, example_inputs, mode, niters=50):
             peak_mem = 0
             start_stats = get_dynamo_stats()
             try:
@@ -2635,8 +2635,10 @@ class BenchmarkRunner:
                     torch.cuda.reset_peak_memory_stats()
                     torch.cuda.empty_cache()
                 t0 = time.perf_counter()
-                for _ in range(niters):
+                for i in range(niters):
                     fn(model, example_inputs)
+                    if i > 20:
+                        t0 = time.perf_counter()
                 t1 = time.perf_counter()
                 latency = t1 - t0
                 if current_device == "cuda":
