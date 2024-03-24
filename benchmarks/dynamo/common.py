@@ -2723,22 +2723,22 @@ class BenchmarkRunner:
             #             "cache_lookup_latency"
             #         ] = dynamo_cache_lookup_latency
 
-            if experiment.func is coverage_experiment:
-                ok, total = Stats.reset_counters()
-                results = []
-                # run with torch._dynamo few times to populate the cache
-                for _ in range(3):
-                    optimized_model_iter_fn(model, example_inputs)
-                _, frames_second_pass = Stats.reset_counters()  # should be 0
-                if frames_second_pass > 0:
-                    optimized_model_iter_fn(model, example_inputs)
-                    _, frames_third_pass = Stats.reset_counters()  # should be 0
-                else:
-                    frames_third_pass = 0
+            # if experiment.func is coverage_experiment:
+            #     ok, total = Stats.reset_counters()
+            #     results = []
+            #     # run with torch._dynamo few times to populate the cache
+            #     for _ in range(3):
+            #         optimized_model_iter_fn(model, example_inputs)
+            #     _, frames_second_pass = Stats.reset_counters()  # should be 0
+            #     if frames_second_pass > 0:
+            #         optimized_model_iter_fn(model, example_inputs)
+            #         _, frames_third_pass = Stats.reset_counters()  # should be 0
+            #     else:
+            #         frames_third_pass = 0
 
-                results.append(
-                    f"{ok:3}/{total:3} +{frames_third_pass} frames {compilation_time:3.0f}s"
-                )
+            #     results.append(
+            #         f"{ok:3}/{total:3} +{frames_third_pass} frames {compilation_time:3.0f}s"
+            #     )
 
             # if experiment.func is speedup_experiment_onnx:
             #     experiment = functools.partial(
@@ -2748,6 +2748,7 @@ class BenchmarkRunner:
             if not hasattr(model, name):
                 model.name = name
             results.append(experiment(model, example_inputs, **experiment_kwargs))
+            print(results)
             return " ".join(map(str, results))
 
     def minify_model(
