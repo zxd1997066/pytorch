@@ -2634,10 +2634,10 @@ class BenchmarkRunner:
                 if current_device == "cuda":
                     torch.cuda.reset_peak_memory_stats()
                     torch.cuda.empty_cache()
-                t0 = time.perf_counter()
+                # t0 = time.perf_counter()
                 for i in range(niters):
                     fn(model, example_inputs)
-                    if i > 20:
+                    if i < 5:
                         t0 = time.perf_counter()
                 t1 = time.perf_counter()
                 latency = t1 - t0
