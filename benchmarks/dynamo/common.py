@@ -2688,7 +2688,7 @@ class BenchmarkRunner:
                 #         optimized_model_iter_fn, model, example_inputs, "dynamo"
                 #     )
                 #     print(dynamo_latency)
-                optimized_model_iter_fn = torch.compile(self.model_iter_fn, backend='inductor', options={"freezing": True})
+                model = torch.compile(model, backend='inductor', options={"freezing": True})
                 dynamo_latency, dynamo_peak_mem, dynamo_stats = warmup(
                          optimized_model_iter_fn, model, example_inputs, "dynamo"
                      )
