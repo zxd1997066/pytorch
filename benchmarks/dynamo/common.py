@@ -2680,24 +2680,24 @@ class BenchmarkRunner:
                 optimized_model_iter_fn = optimize_ctx(self.model_iter_fn)
                 aot_compilation_time = 0
             if self.args.compile:
-                # eager_latency, eager_peak_mem, _ = warmup(
-                # self.model_iter_fn, model, example_inputs, "eager", 5
-                # )
-                # with maybe_enable_compiled_autograd(self.args.compiled_autograd):
-                #     dynamo_latency, dynamo_peak_mem, dynamo_stats = warmup(
-                #         optimized_model_iter_fn, model, example_inputs, "dynamo"
-                #     )
-                #     print(dynamo_latency)
-                model = torch.compile(model, backend='inductor', options={"freezing": True})
-                dynamo_latency, dynamo_peak_mem, dynamo_stats = warmup(
-                         optimized_model_iter_fn, model, example_inputs, "dynamo"
-                     )
-                print(dynamo_latency)
+                eager_latency, eager_peak_mem, _ = warmup(
+                self.model_iter_fn, model, example_inputs, "eager", 5
+                )
+                with maybe_enable_compiled_autograd(self.args.compiled_autograd):
+                    dynamo_latency, dynamo_peak_mem, dynamo_stats = warmup(
+                        optimized_model_iter_fn, model, example_inputs, "dynamo"
+                    )
+                    print("dynamo_latency: ", dynamo_latency)
+                # model = torch.compile(model, backend='inductor', options={"freezing": True})
+                # dynamo_latency, dynamo_peak_mem, dynamo_stats = warmup(
+                #          optimized_model_iter_fn, model, example_inputs, "dynamo"
+                #      )
+                # print(dynamo_latency)
             else:
                 eager_latency, eager_peak_mem, _ = warmup(
                 self.model_iter_fn, model, example_inputs, "eager"
             )
-                print(eager_latency)
+                print("eager_latency:", eager_latency)
 
             # if self.args.profile_dynamo_cache_lookup:
             #     with torch.profiler.profile(
