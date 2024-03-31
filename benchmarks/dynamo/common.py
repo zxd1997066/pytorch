@@ -2637,7 +2637,7 @@ class BenchmarkRunner:
                 # t0 = time.perf_counter()
                 for i in range(niters):
                     fn(model, example_inputs)
-                    if i < 5:
+                    if i < 20:
                         t0 = time.perf_counter()
                 t1 = time.perf_counter()
                 latency = t1 - t0
