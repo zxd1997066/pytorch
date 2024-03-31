@@ -2692,7 +2692,7 @@ class BenchmarkRunner:
                 dynamo_latency, dynamo_peak_mem, dynamo_stats = warmup(
                          optimized_model_iter_fn, model, example_inputs, "dynamo"
                      )
-                     print(dynamo_latency)
+                print(dynamo_latency)
             else:
                 eager_latency, eager_peak_mem, _ = warmup(
                 self.model_iter_fn, model, example_inputs, "eager"
