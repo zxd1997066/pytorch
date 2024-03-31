@@ -2679,12 +2679,12 @@ class BenchmarkRunner:
             else:
                 optimized_model_iter_fn = optimize_ctx(self.model_iter_fn)
                 aot_compilation_time = 0
-
-            with maybe_enable_compiled_autograd(self.args.compiled_autograd):
-                dynamo_latency, dynamo_peak_mem, dynamo_stats = warmup(
-                    optimized_model_iter_fn, model, example_inputs, "dynamo"
-                )
-                print(dynamo_latency)
+            if self.args.compile:
+                with maybe_enable_compiled_autograd(self.args.compiled_autograd):
+                    dynamo_latency, dynamo_peak_mem, dynamo_stats = warmup(
+                        optimized_model_iter_fn, model, example_inputs, "dynamo"
+                    )
+                    print(dynamo_latency)
 
             # if self.args.profile_dynamo_cache_lookup:
             #     with torch.profiler.profile(
@@ -2981,6 +2981,9 @@ def parse_args(args=None):
     )
     parser.add_argument(
         "--fast", "-f", action="store_true", help="skip slow benchmarks"
+    )
+    parser.add_argument(
+        "--compile", action="store_true", help="torch.compile"
     )
     parser.add_argument(
         "--only",
