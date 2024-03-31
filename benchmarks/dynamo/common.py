@@ -2823,49 +2823,49 @@ class BenchmarkRunner:
             # print(status)
         torch.cuda.empty_cache()
 
-        if self.args.timing:
-            from torch._dynamo.utils import op_count, print_time_report
-            from torch.utils._stats import simple_call_counter
+        # if self.args.timing:
+        #     from torch._dynamo.utils import op_count, print_time_report
+        #     from torch.utils._stats import simple_call_counter
 
-            print_time_report()
-            stats = "STATS: "
-            stats = stats + " | ".join(
-                itertools.chain(
-                    [f"call_* op count: {op_count}"],
-                    (f"{key}:{value}" for key, value in simple_call_counter.items()),
-                )
-            )
-            print(stats)
-        stats = get_dynamo_stats()
-        stats.subtract(start_stats)
+        #     print_time_report()
+        #     stats = "STATS: "
+        #     stats = stats + " | ".join(
+        #         itertools.chain(
+        #             [f"call_* op count: {op_count}"],
+        #             (f"{key}:{value}" for key, value in simple_call_counter.items()),
+        #         )
+        #     )
+        #     print(stats)
+        # stats = get_dynamo_stats()
+        # stats.subtract(start_stats)
 
-        if explain:
-            print(
-                f"Dynamo produced {stats['unique_graphs']} graphs "
-                f"covering {stats['calls_captured']} ops with "
-                f"{stats['graph_breaks']} graph breaks ({stats['unique_graph_breaks']} unique)"
-            )
+        # if explain:
+        #     print(
+        #         f"Dynamo produced {stats['unique_graphs']} graphs "
+        #         f"covering {stats['calls_captured']} ops with "
+        #         f"{stats['graph_breaks']} graph breaks ({stats['unique_graph_breaks']} unique)"
+        #     )
 
-        if explain or self.args.log_graph_breaks or self.args.print_graph_breaks:
-            filename = f"{output_filename.rstrip('.csv')}_graph_breaks.csv"
+        # if explain or self.args.log_graph_breaks or self.args.print_graph_breaks:
+        #     filename = f"{output_filename.rstrip('.csv')}_graph_breaks.csv"
 
-            def add_double_quotes(x):
-                # Delimiter because reason could have comma
-                return f'"{x}"'
+        #     def add_double_quotes(x):
+        #         # Delimiter because reason could have comma
+        #         return f'"{x}"'
 
-            for graph_break in graph_break_reasons:
-                reason = add_double_quotes(graph_break.reason)
-                user_stack = add_double_quotes(
-                    ", ".join([str(x) for x in graph_break.user_stack])
-                )
-                output_csv(
-                    filename,
-                    ["model", "reason", "user_stack"],
-                    [current_name, reason, user_stack],
-                )
+        #     for graph_break in graph_break_reasons:
+        #         reason = add_double_quotes(graph_break.reason)
+        #         user_stack = add_double_quotes(
+        #             ", ".join([str(x) for x in graph_break.user_stack])
+        #         )
+        #         output_csv(
+        #             filename,
+        #             ["model", "reason", "user_stack"],
+        #             [current_name, reason, user_stack],
+        #         )
 
-        if self.args.stats:
-            Stats.print_summary()
+        # if self.args.stats:
+        #     Stats.print_summary()
 
 
 def help(fn):
