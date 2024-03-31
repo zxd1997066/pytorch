@@ -2750,9 +2750,9 @@ class BenchmarkRunner:
 
             if not hasattr(model, name):
                 model.name = name
-            results.append(experiment(model, example_inputs, **experiment_kwargs))
-            print(results)
-            return " ".join(map(str, results))
+            # results.append(experiment(model, example_inputs, **experiment_kwargs))
+            # print(results)
+            # return " ".join(map(str, results))
 
     def minify_model(
         self,
