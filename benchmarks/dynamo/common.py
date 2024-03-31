@@ -2667,6 +2667,10 @@ class BenchmarkRunner:
             if tag is not None:
                 experiment_kwargs["tag"] = tag
             results = []
+            # eager_latency, eager_peak_mem, _ = warmup(
+            #     self.model_iter_fn, model, example_inputs, "eager"
+            # )
+            # print(eager_latency)
             if self.args.export_aot_inductor:
                 t_0 = time.perf_counter()
                 optimized_model_iter_fn = optimize_ctx
@@ -2676,6 +2680,9 @@ class BenchmarkRunner:
                 optimized_model_iter_fn = optimize_ctx(self.model_iter_fn)
                 aot_compilation_time = 0
             if self.args.compile:
+                eager_latency, eager_peak_mem, _ = warmup(
+                self.model_iter_fn, model, example_inputs, "eager", 5
+                )
                 with maybe_enable_compiled_autograd(self.args.compiled_autograd):
                     dynamo_latency, dynamo_peak_mem, dynamo_stats = warmup(
                         optimized_model_iter_fn, model, example_inputs, "dynamo"
