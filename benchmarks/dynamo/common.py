@@ -2637,6 +2637,7 @@ class BenchmarkRunner:
                 # t0 = time.perf_counter()
                 total_sample = 0
                 total_time = 0.0
+                t0 = time.perf_counter()
                 for i in range(niters):
                     elapsed = time.time()
                     fn(model, example_inputs)
