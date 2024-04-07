@@ -2697,6 +2697,7 @@ class BenchmarkRunner:
                 eager_latency, eager_peak_mem, _ = warmup(
                 self.model_iter_fn, model, example_inputs, "eager"
             )
+                print(batch_size)
                 print("eager_latency:", eager_latency)
 
             # if self.args.profile_dynamo_cache_lookup:
