@@ -2627,7 +2627,7 @@ class BenchmarkRunner:
             with self.pick_grad(name, self.args.training):
                 return experiment(*self.maybe_cast(model, example_inputs))
 
-        def warmup(fn, model, batch_size, example_inputs, mode, niters=50):
+        def warmup(fn, model, batch_size, example_inputs, mode, num_warmup=20, niters=50):
             peak_mem = 0
             start_stats = get_dynamo_stats()
             try:
@@ -2643,10 +2643,10 @@ class BenchmarkRunner:
                     fn(model, example_inputs)
                     elapsed = time.time() - elapsed
                     print("Iteration: {}, inference time: {} sec.".format(i, elapsed), flush=True)
-                    if i >= 20:
+                    if i >= num_warmup:
                         total_time += elapsed
                         total_sample += batch_size
-                if niters > 20:
+                if niters > num_warmup:
                     throughput = total_sample / total_time
                     latency = total_time / total_sample * 1000
                     print('inference latency: %f ms' % latency)
@@ -2693,11 +2693,11 @@ class BenchmarkRunner:
                 aot_compilation_time = 0
             if self.args.compile:
                 eager_latency, eager_peak_mem, _ = warmup(
-                self.model_iter_fn, model, batch_size, example_inputs, "eager", 5
+                self.model_iter_fn, model, batch_size, example_inputs, "eager", args.num_warmup, args.num_iter
                 )
                 with maybe_enable_compiled_autograd(self.args.compiled_autograd):
                     dynamo_latency, dynamo_peak_mem, dynamo_stats = warmup(
-                        optimized_model_iter_fn, model, batch_size, example_inputs, "dynamo"
+                        optimized_model_iter_fn, model, batch_size, example_inputs, "dynamo", args.num_warmup, args.num_iter
                     )
                 # model = torch.compile(model, backend='inductor', options={"freezing": True})
                 # dynamo_latency, dynamo_peak_mem, dynamo_stats = warmup(
@@ -2706,7 +2706,7 @@ class BenchmarkRunner:
                 # print(dynamo_latency)
             else:
                 eager_latency, eager_peak_mem, _ = warmup(
-                self.model_iter_fn, model, batch_size, example_inputs, "eager"
+                self.model_iter_fn, model, batch_size, example_inputs, "eager", args.num_warmup, args.num_iter
             )
 
             # if self.args.profile_dynamo_cache_lookup:
@@ -3009,6 +3009,8 @@ def parse_args(args=None):
     parser.add_argument(
         "--compile", action="store_true", help="torch.compile"
     )
+    parser.add_argument('--num_iter', type=int, default=50, help='num_iter')
+    parser.add_argument('--num_warmup', type=int, default=20, help='num_warmup')
     parser.add_argument(
         "--only",
         help="""Run just one model from torchbench. Or
