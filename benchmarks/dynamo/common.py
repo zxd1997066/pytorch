@@ -2621,7 +2621,7 @@ class BenchmarkRunner:
         return tolerance_status
 
     def run_performance_test(
-        self, name, model, example_inputs, optimize_ctx, experiment, tag=None
+        self, name, model, batch_size, example_inputs, optimize_ctx, experiment, tag=None
     ):
         if self.args.xla:
             with self.pick_grad(name, self.args.training):
@@ -2804,6 +2804,7 @@ class BenchmarkRunner:
         self,
         name,
         model,
+        batch_size,
         example_inputs,
         optimize_ctx,
         experiment,
@@ -2832,7 +2833,7 @@ class BenchmarkRunner:
             print(status)
         elif self.args.performance:
             status = self.run_performance_test(
-                name, model, example_inputs, optimize_ctx, experiment, tag
+                name, model, batch_size, example_inputs, optimize_ctx, experiment, tag
             )
             # print(status)
         torch.cuda.empty_cache()
@@ -3969,6 +3970,7 @@ def run(runner, args, original_dir=None):
             runner.run_one_model(
                 name,
                 model,
+                batch_size,
                 example_inputs,
                 optimize_ctx,
                 experiment,
