@@ -2693,11 +2693,11 @@ class BenchmarkRunner:
                 aot_compilation_time = 0
             if self.args.compile:
                 eager_latency, eager_peak_mem, _ = warmup(
-                self.model_iter_fn, model, batch_size, example_inputs, "eager", args.num_warmup, args.num_iter
+                self.model_iter_fn, model, batch_size, example_inputs, "eager", self.args.num_warmup, self.args.num_iter
                 )
                 with maybe_enable_compiled_autograd(self.args.compiled_autograd):
                     dynamo_latency, dynamo_peak_mem, dynamo_stats = warmup(
-                        optimized_model_iter_fn, model, batch_size, example_inputs, "dynamo", args.num_warmup, args.num_iter
+                        optimized_model_iter_fn, model, batch_size, example_inputs, "dynamo", self.args.num_warmup, 5
                     )
                 # model = torch.compile(model, backend='inductor', options={"freezing": True})
                 # dynamo_latency, dynamo_peak_mem, dynamo_stats = warmup(
@@ -2706,7 +2706,7 @@ class BenchmarkRunner:
                 # print(dynamo_latency)
             else:
                 eager_latency, eager_peak_mem, _ = warmup(
-                self.model_iter_fn, model, batch_size, example_inputs, "eager", args.num_warmup, args.num_iter
+                self.model_iter_fn, model, batch_size, example_inputs, "eager", self.args.num_warmup, self.args.num_iter
             )
 
             # if self.args.profile_dynamo_cache_lookup:
