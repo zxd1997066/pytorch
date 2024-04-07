@@ -2627,7 +2627,7 @@ class BenchmarkRunner:
             with self.pick_grad(name, self.args.training):
                 return experiment(*self.maybe_cast(model, example_inputs))
 
-        def warmup(fn, model, example_inputs, mode, niters=50):
+        def warmup(fn, model, batch_size, example_inputs, mode, niters=50):
             peak_mem = 0
             start_stats = get_dynamo_stats()
             try:
@@ -2644,7 +2644,7 @@ class BenchmarkRunner:
                     print("Iteration: {}, inference time: {} sec.".format(i, elapsed), flush=True)
                     if i >= 20:
                         total_time += elapsed
-                        total_sample += args.batch_size
+                        total_sample += batch_size
                 if niters > 20:
                     throughput = total_sample / total_time
                     latency = total_time / total_sample * 1000
@@ -2692,11 +2692,11 @@ class BenchmarkRunner:
                 aot_compilation_time = 0
             if self.args.compile:
                 eager_latency, eager_peak_mem, _ = warmup(
-                self.model_iter_fn, model, example_inputs, "eager", 5
+                self.model_iter_fn, model, batch_size, example_inputs, "eager", 5
                 )
                 with maybe_enable_compiled_autograd(self.args.compiled_autograd):
                     dynamo_latency, dynamo_peak_mem, dynamo_stats = warmup(
-                        optimized_model_iter_fn, model, example_inputs, "dynamo"
+                        optimized_model_iter_fn, model, batch_size, example_inputs, "dynamo"
                     )
                 # model = torch.compile(model, backend='inductor', options={"freezing": True})
                 # dynamo_latency, dynamo_peak_mem, dynamo_stats = warmup(
@@ -2705,7 +2705,7 @@ class BenchmarkRunner:
                 # print(dynamo_latency)
             else:
                 eager_latency, eager_peak_mem, _ = warmup(
-                self.model_iter_fn, model, example_inputs, "eager"
+                self.model_iter_fn, model, batch_size, example_inputs, "eager"
             )
 
             # if self.args.profile_dynamo_cache_lookup:
