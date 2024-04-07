@@ -2635,10 +2635,21 @@ class BenchmarkRunner:
                     torch.cuda.reset_peak_memory_stats()
                     torch.cuda.empty_cache()
                 # t0 = time.perf_counter()
+                total_sample = 0
+                total_time = 0.0
                 for i in range(niters):
+                    elapsed = time.time()
                     fn(model, example_inputs)
-                    if i < 20:
-                        t0 = time.perf_counter()
+                    elapsed = time.time() - elapsed
+                    print("Iteration: {}, inference time: {} sec.".format(i, elapsed), flush=True)
+                    if i >= 20:
+                        total_time += elapsed
+                        total_sample += args.batch_size
+                if niters > 20:
+                    throughput = total_sample / total_time
+                    latency = total_time / total_sample * 1000
+                    print('inference latency: %f ms' % latency)
+                    print('inference Throughput: %3f images/s' % throughput)
                 t1 = time.perf_counter()
                 latency = t1 - t0
                 if current_device == "cuda":
@@ -2687,7 +2698,6 @@ class BenchmarkRunner:
                     dynamo_latency, dynamo_peak_mem, dynamo_stats = warmup(
                         optimized_model_iter_fn, model, example_inputs, "dynamo"
                     )
-                    print("dynamo_latency: ", dynamo_latency)
                 # model = torch.compile(model, backend='inductor', options={"freezing": True})
                 # dynamo_latency, dynamo_peak_mem, dynamo_stats = warmup(
                 #          optimized_model_iter_fn, model, example_inputs, "dynamo"
@@ -2697,8 +2707,6 @@ class BenchmarkRunner:
                 eager_latency, eager_peak_mem, _ = warmup(
                 self.model_iter_fn, model, example_inputs, "eager"
             )
-                print(batch_size)
-                print("eager_latency:", eager_latency)
 
             # if self.args.profile_dynamo_cache_lookup:
             #     with torch.profiler.profile(
