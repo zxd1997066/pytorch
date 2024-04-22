@@ -933,6 +933,10 @@ if torch._C._has_mkldnn:
             torch.bfloat16,
             torch.float16,
         )
+        
+        # Test to use oneDNN for FP32 GEMM
+        is_lp_weight = True
+        
         # on x86, for fp32, mkl should be enabled and batch_size should not be a free symbol.
         # on aarch64, use mkldnn op for fp32 as well if acl is enabled
         if (
