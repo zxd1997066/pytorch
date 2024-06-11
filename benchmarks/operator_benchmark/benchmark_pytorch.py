@@ -140,18 +140,19 @@ class PyTorchOperatorTestCase:
         self._jit_forward_graph(num_runs)
 
     def run_inductor_forward(self, num_runs, print_per_iter, cuda_sync):
-        """Run the forward path of an op with inductor mode"""     
+        """Run the forward path of an op with inductor mode"""   
+        model = self._generate_inductor_forward()  
         if print_per_iter:
             for _ in range(num_runs):
                 start_time = time.time()
-                self.output = self._generate_inductor_forward().forward_impl()
+                self.output = model.forward_impl()
                 if cuda_sync:
                     torch.cuda.synchronize(torch.cuda.current_device())
                 end_time = time.time()
                 self.time_series.append((end_time - start_time) * 1e3)
         else:
             for _ in range(num_runs):
-                self.output = self._generate_inductor_forward().forward_impl()
+                self.output = model.forward_impl()
             if cuda_sync:
                 torch.cuda.synchronize(torch.cuda.current_device())
 
