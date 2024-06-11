@@ -67,7 +67,7 @@ class TorchBenchmarkBase(torch.nn.Module):
         # will be called in both the eager and JIT mode of local runs
         return self.forward(*self.get_inputs())
 
-    @torch.jit.export
+    # @torch.jit.export
     def forward_consume(self, iters: int):
         #  _consume is used to avoid the dead-code-elimination optimization
         for _ in range(iters):
@@ -130,7 +130,7 @@ class PyTorchOperatorTestCase:
         self.op_bench.eval()
         with torch.no_grad(), config.patch({"freezing": True}):
             compiled_op_bench = torch.compile(self.op_bench)
-        return compiled_op_bench
+        return compiled_op_bench.forward_consume
 
     def run_jit_forward(self, num_runs, print_per_iter=False, cuda_sync=False):
         """Run the forward path of an op with JIT mode"""
@@ -138,23 +138,29 @@ class PyTorchOperatorTestCase:
             self._jit_forward_graph = self._generate_jit_forward_graph()
         self._jit_forward_graph(num_runs)
 
-    def run_inductor_forward(self, num_runs, print_per_iter, cuda_sync):
-        """Run the forward path of an op with inductor mode"""   
-        model = self._generate_inductor_forward()
-        with torch.no_grad(), config.patch({"freezing": True}):
-            if print_per_iter:
-                for _ in range(num_runs):
-                    start_time = time.time()
-                    self.output = model.forward_impl()
-                    if cuda_sync:
-                        torch.cuda.synchronize(torch.cuda.current_device())
-                    end_time = time.time()
-                    self.time_series.append((end_time - start_time) * 1e3)
-            else:
-                for _ in range(num_runs):
-                    self.output = model.forward_impl()
-                if cuda_sync:
-                    torch.cuda.synchronize(torch.cuda.current_device())
+    def run_inductor_forward(self, num_runs, print_per_iter=False, cuda_sync=False):
+        """Run the forward path of an op with Inductor mode"""
+        self._generate_inductor_forward(num_runs)
+
+    # def run_inductor_forward(self, num_runs, print_per_iter, cuda_sync):
+    #     """Run the forward path of an op with inductor mode"""   
+    #     model = self._generate_inductor_forward()
+    #     model.forward_impl.eval()
+    #     with torch.no_grad(), config.patch({"freezing": True}):
+    #         model.forward_impl = torch.compile(model.forward_impl)
+    #         if print_per_iter:
+    #             for _ in range(num_runs):
+    #                 start_time = time.time()
+    #                 self.output = model.forward_impl()
+    #                 if cuda_sync:
+    #                     torch.cuda.synchronize(torch.cuda.current_device())
+    #                 end_time = time.time()
+    #                 self.time_series.append((end_time - start_time) * 1e3)
+    #         else:
+    #             for _ in range(num_runs):
+    #                 self.output = model.forward_impl()
+    #             if cuda_sync:
+    #                 torch.cuda.synchronize(torch.cuda.current_device())
 
     def _print_per_iter(self):
         # print last 50 values
