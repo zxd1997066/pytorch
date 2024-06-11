@@ -183,6 +183,7 @@ class BenchmarkRunner:
         self.predefined_minimum_secs = 1
         self.max_iters = 1e6
         self.use_jit = args.use_jit
+        self.compile = args.compile
         self.num_runs = args.num_runs
         self.print_per_iter = False
         self.operator_range = benchmark_utils.get_operator_range(args.operator_range)
@@ -233,8 +234,12 @@ class BenchmarkRunner:
                 )
         else:
             if test_case.framework == "PyTorch":
-                print(f"# Mode: {'JIT' if self.use_jit else 'Eager'}")
-
+                if self.use_jit:
+                    print(f"# Mode: JIT")
+                elif self.compile:
+                    print(f"# Mode: Inductor")
+                else:
+                    print(f"# Mode: Eager")
             print(
                 f"# Name: {test_case.test_config.test_name}\n# Input: {test_case.test_config.input_config}"
             )
@@ -272,6 +277,8 @@ class BenchmarkRunner:
         func = test_case.run_forward
         if self.use_jit:
             func = test_case.run_jit_forward
+        elif self.compile:
+            func = test_case.run_inductor_forward
         forward_time = timeit.timeit(
             functools.partial(func, iters, print_per_iter, cuda_sync), number=1
         )
@@ -312,7 +319,12 @@ class BenchmarkRunner:
             time_trace.append(report_run_time)
             # Print out the time spent in each epoch in ms
             if self.args.report_aibench:
-                mode = "JIT" if self.use_jit else "Eager"
+                if self.use_jit:
+                    mode = "JIT"
+                elif self.compile:
+                    mode = "Inductor"
+                else:
+                    mode = "Eager"
                 test_name = "_".join(
                     [test_case.framework, test_case.test_config.test_name, mode]
                 )

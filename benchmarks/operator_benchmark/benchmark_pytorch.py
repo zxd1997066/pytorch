@@ -3,6 +3,7 @@ import time
 
 import benchmark_cpp_extension  # noqa: F401
 import torch
+import torch._inductor.config as config
 
 
 """PyTorch performance microbenchmarks.
@@ -123,12 +124,23 @@ class PyTorchOperatorTestCase:
         """generate a graph for the forward function via scripting"""
         scripted_op_bench = torch.jit.script(self.op_bench)
         return scripted_op_bench.forward_consume
+    
+    def _generate_inductor_forward(self):
+        """generate a graph for the forward function via scripting"""
+        self.op_bench.eval()
+        with torch.no_grad(), config.patch({"freezing": True}):
+            compiled_op_bench = torch.compile(self.op_bench)
+        return compiled_op_bench.forward_consume
 
     def run_jit_forward(self, num_runs, print_per_iter=False, cuda_sync=False):
         """Run the forward path of an op with JIT mode"""
         if self._jit_forward_graph is None:
             self._jit_forward_graph = self._generate_jit_forward_graph()
         self._jit_forward_graph(num_runs)
+
+    def run_inductor_forward(self, num_runs, print_per_iter=False, cuda_sync=False):
+        """Run the forward path of an op with inductor mode"""
+        self._generate_inductor_forward(num_runs)
 
     def _print_per_iter(self):
         # print last 50 values
