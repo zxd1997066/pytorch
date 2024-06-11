@@ -185,7 +185,7 @@ class BenchmarkRunner:
         self.use_jit = args.use_jit
         self.compile = args.compile
         self.num_runs = args.num_runs
-        self.print_per_iter = False
+        self.print_per_iter = True
         self.operator_range = benchmark_utils.get_operator_range(args.operator_range)
         # 100 is the default warmup iterations
         if self.args.warmup_iterations == -1:

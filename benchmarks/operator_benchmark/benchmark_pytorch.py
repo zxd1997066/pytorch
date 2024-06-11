@@ -55,13 +55,13 @@ class TorchBenchmarkBase(torch.nn.Module):
     def extract_inputs_tuple(self):
         self.inputs_tuple = tuple(self.inputs.values())
 
-    @torch.jit.export
+    # @torch.jit.export
     def get_inputs(self):
         # Need to convert the inputs to tuple outside of JIT so that
         # JIT can infer the size of the inputs.
         return self.inputs_tuple
 
-    @torch.jit.export
+    # @torch.jit.export
     def forward_impl(self):
         # This is to supply the inputs to the forward function which
         # will be called in both the eager and JIT mode of local runs
@@ -130,7 +130,6 @@ class PyTorchOperatorTestCase:
         self.op_bench.eval()
         with torch.no_grad(), config.patch({"freezing": True}):
             compiled_op_bench = torch.compile(self.op_bench)
-            output = compiled_op_bench.forward_impl()
         return compiled_op_bench
 
     def run_jit_forward(self, num_runs, print_per_iter=False, cuda_sync=False):
@@ -141,20 +140,21 @@ class PyTorchOperatorTestCase:
 
     def run_inductor_forward(self, num_runs, print_per_iter, cuda_sync):
         """Run the forward path of an op with inductor mode"""   
-        model = self._generate_inductor_forward()  
-        if print_per_iter:
-            for _ in range(num_runs):
-                start_time = time.time()
-                self.output = model.forward_impl()
+        model = self._generate_inductor_forward()
+        with torch.no_grad(), config.patch({"freezing": True}):
+            if print_per_iter:
+                for _ in range(num_runs):
+                    start_time = time.time()
+                    self.output = model.forward_impl()
+                    if cuda_sync:
+                        torch.cuda.synchronize(torch.cuda.current_device())
+                    end_time = time.time()
+                    self.time_series.append((end_time - start_time) * 1e3)
+            else:
+                for _ in range(num_runs):
+                    self.output = model.forward_impl()
                 if cuda_sync:
                     torch.cuda.synchronize(torch.cuda.current_device())
-                end_time = time.time()
-                self.time_series.append((end_time - start_time) * 1e3)
-        else:
-            for _ in range(num_runs):
-                self.output = model.forward_impl()
-            if cuda_sync:
-                torch.cuda.synchronize(torch.cuda.current_device())
 
     def _print_per_iter(self):
         # print last 50 values
