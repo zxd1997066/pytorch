@@ -1527,6 +1527,7 @@ def _add_ephemeral_timeout_for_all_pgs(timeout: timedelta) -> None:
             backend = pg._get_backend(torch.device("cuda"))
             if is_nccl_available() and isinstance(backend, ProcessGroupNCCL):
                 backend._add_ephemeral_timeout(timeout)
+        
 
 
 def _set_pg_timeout(timeout: timedelta, group: ProcessGroup | None = None) -> None:
@@ -1564,6 +1565,12 @@ def _set_pg_timeout(timeout: timedelta, group: ProcessGroup | None = None) -> No
     if torch.device("cuda") in devices:
         backend = group._get_backend(torch.device("cuda"))
         if is_nccl_available() and isinstance(backend, ProcessGroupNCCL):
+            backends.add(backend)  # type: ignore[arg-type]
+        elif is_gloo_available() and isinstance(backend, ProcessGroupGloo):
+            backends.add(backend)  # type: ignore[arg-type]
+    if torch.device("xpu") in devices:
+        backend = group._get_backend(torch.device("xpu"))
+        if is_xccl_available() and isinstance(backend, ProcessGroupXCCL):
             backends.add(backend)  # type: ignore[arg-type]
         elif is_gloo_available() and isinstance(backend, ProcessGroupGloo):
             backends.add(backend)  # type: ignore[arg-type]

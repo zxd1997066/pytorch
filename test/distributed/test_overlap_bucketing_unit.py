@@ -19,6 +19,7 @@ from torch.testing._internal.common_utils import (
     instantiate_parametrized_tests,
     parametrize,
     run_tests,
+    TEST_XPU,
 )
 from torch.testing._internal.inductor_utils import HAS_GPU
 from torch.utils._ordered_set import OrderedSet
@@ -109,7 +110,7 @@ class TestOverlapPreservingBucketing(InductorTestCase):
 
         store = FakeStore()
         dist.init_process_group(backend="fake", rank=0, world_size=2, store=store)
-        cls.device = "cuda"
+        cls.device = "xpu" if TEST_XPU else "cuda"
 
     @classmethod
     def tearDownClass(cls):
@@ -736,7 +737,7 @@ class TestCrossPGOverlap(InductorTestCase):
 
         store = FakeStore()
         dist.init_process_group(backend="fake", rank=0, world_size=2, store=store)
-        cls.device = "cuda"
+        cls.device = "xpu" if TEST_XPU else "cuda"
 
         # Create two separate process groups for cross-PG testing
         cls.pg1 = dist.new_group(ranks=[0, 1])
@@ -909,7 +910,7 @@ class TestFusibleNodeOverlap(InductorTestCase):
 
         store = FakeStore()
         dist.init_process_group(backend="fake", rank=0, world_size=2, store=store)
-        cls.device = "cuda"
+        cls.device = "xpu" if TEST_XPU else "cuda"
 
     @classmethod
     def tearDownClass(cls):
@@ -1032,7 +1033,7 @@ class TestOverlapSchedulingFixes(InductorTestCase):
 
         store = FakeStore()
         dist.init_process_group(backend="fake", rank=0, world_size=16, store=store)
-        cls.device = "cuda"
+        cls.device = "xpu" if TEST_XPU else "cuda"
 
     @classmethod
     def tearDownClass(cls):
