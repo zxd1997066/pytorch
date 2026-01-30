@@ -3,6 +3,7 @@
 import os
 import unittest
 import sys
+import unittest
 from datetime import timedelta
 from unittest.mock import patch
 
@@ -20,12 +21,20 @@ from test_c10d_common import LOOPBACK
 from torch.testing._internal.common_distributed import (
     create_device,
     MultiProcessTestCase,
-    requires_gloo,
     requires_accelerator_dist_backend,
+    requires_gloo,
     skip_if_lt_x_gpu,
     with_dist_debug_levels,
 )
-from torch.testing._internal.common_utils import run_tests, TEST_WITH_DEV_DBG_ASAN, TEST_XPU
+from torch.testing._internal.common_utils import (
+    run_tests,
+    TEST_WITH_DEV_DBG_ASAN,
+    TEST_XPU,
+)
+
+
+device_type = acc.type if (acc := torch.accelerator.current_accelerator()) else "cpu"
+backend = c10d.get_default_backend_for_device(device_type)
 
 device_type = acc.type if (acc := torch.accelerator.current_accelerator()) else "cpu"
 backend = c10d.get_default_backend_for_device(device_type)
@@ -49,7 +58,8 @@ class AbstractProcessGroupWrapperTest(MultiProcessTestCase):
             # For CUDA, only assert on device type, not index
             if device_type in str(tensor.device):
                 self.assertTrue(
-                    device_type in err, f"Did not find cuda device in error {err}"
+                    device_type in err,
+                    f"Did not find {device_type} device in error {err}",
                 )
             else:
                 self.assertTrue(
@@ -72,13 +82,13 @@ class AbstractProcessGroupWrapperTest(MultiProcessTestCase):
                     "Collectives differ in the following" in err, f"Got error {err}"
                 )
 
-    def _test_collective_hang(self, wrapper_pg, use_cuda=False):
+    def _test_collective_hang(self, wrapper_pg, use_accel=False):
         # All ranks besides 1 call allreduce and wrapper_pg should detect a hang
         # and report an issue with rank 1.
         faulty_rank = 1
         if self.rank != faulty_rank:
             tensor = torch.randn(20, 10)
-            if use_cuda:
+            if use_accel:
                 tensor = tensor.to(self.rank)
 
             if self.rank == 0:
@@ -93,9 +103,9 @@ class AbstractProcessGroupWrapperTest(MultiProcessTestCase):
             with self.assertRaisesRegex(RuntimeError, err):
                 wrapper_pg.allreduce([tensor])
 
-    def _test_collectives_op_mismatch(self, wrapper_pg, use_cuda=False):
+    def _test_collectives_op_mismatch(self, wrapper_pg, use_accel=False):
         tensor = torch.randn(20, 10)
-        if use_cuda:
+        if use_accel:
             tensor = tensor.to(self.rank)
         works = []
         # Run a few successful collectives
@@ -148,11 +158,11 @@ class AbstractProcessGroupWrapperTest(MultiProcessTestCase):
             tensor=tensor,
         )
 
-    def _test_collective_shape_mismatch(self, wrapper_pg, use_cuda=False):
+    def _test_collective_shape_mismatch(self, wrapper_pg, use_accel=False):
         wrapper_pg.barrier()
         dim = 2 if self.rank == 0 else 10
         tensor = torch.randn(20, dim)
-        if use_cuda:
+        if use_accel:
             tensor = tensor.to(self.rank)
         with self.assertRaisesRegex(RuntimeError, ".*") as cm:
             wrapper_pg.allreduce([tensor])
@@ -165,7 +175,7 @@ class AbstractProcessGroupWrapperTest(MultiProcessTestCase):
 
         # Check errors are raised when dimensionality of shapes is different
         tensor = torch.randn(20, 10, 2) if self.rank == 0 else torch.randn(20, 10)
-        if use_cuda:
+        if use_accel:
             tensor = tensor.to(self.rank)
         with self.assertRaisesRegex(RuntimeError, ".*") as cm:
             wrapper_pg.allreduce([tensor])
@@ -180,14 +190,14 @@ class AbstractProcessGroupWrapperTest(MultiProcessTestCase):
         input = [
             torch.tensor(
                 [self.rank] if self.rank == 0 else [self.rank, self.rank],
-                device=self.rank if use_cuda else "cpu",
+                device=self.rank if use_accel else "cpu",
             )
             for _ in range(self.world_size)
         ]
         outputs = [
             torch.tensor(
                 [-1] if self.rank == 0 else [-1, -1],
-                device=self.rank if use_cuda else "cpu",
+                device=self.rank if use_accel else "cpu",
             )
             for _ in range(self.world_size)
         ]
@@ -273,7 +283,7 @@ if not TEST_WITH_DEV_DBG_ASAN:
         @with_dist_debug_levels(levels=["DETAIL"])
         def test_collectives_op_mismatch_debug_mode(self):
             pg = self._create_wrapper_pg(with_new_group=True)
-            self._test_collectives_op_mismatch(pg, use_cuda=True)
+            self._test_collectives_op_mismatch(pg, use_accel=True)
             self._test_nccl_only_op_mismatch(pg)
 
         @requires_accelerator_dist_backend(["nccl", "xccl"])
@@ -281,7 +291,7 @@ if not TEST_WITH_DEV_DBG_ASAN:
         @with_dist_debug_levels(levels=["OFF"])
         def test_collectives_op_mismatch(self):
             pg = self._create_wrapper_pg(with_new_group=False)
-            self._test_collectives_op_mismatch(pg, use_cuda=True)
+            self._test_collectives_op_mismatch(pg, use_accel=True)
             self._test_nccl_only_op_mismatch(pg)
 
         @requires_accelerator_dist_backend(["nccl", "xccl"])
@@ -289,7 +299,7 @@ if not TEST_WITH_DEV_DBG_ASAN:
         @with_dist_debug_levels(levels=["DETAIL"])
         def test_collective_shape_mismatch_debug_mode_detail(self):
             pg = self._create_wrapper_pg(with_new_group=True)
-            self._test_collective_shape_mismatch(pg, use_cuda=True)
+            self._test_collective_shape_mismatch(pg, use_accel=True)
             self._test_nccl_only_shape_mismatch(pg)
 
         @requires_accelerator_dist_backend(["nccl", "xccl"])
@@ -297,7 +307,7 @@ if not TEST_WITH_DEV_DBG_ASAN:
         @with_dist_debug_levels(levels=["OFF"])
         def test_collective_shape_mismatch_debug_mode_off(self):
             pg = self._create_wrapper_pg(with_new_group=False)
-            self._test_collective_shape_mismatch(pg, use_cuda=True)
+            self._test_collective_shape_mismatch(pg, use_accel=True)
             self._test_nccl_only_shape_mismatch(pg)
 
         def _test_nccl_only_op_mismatch(self, wrapper_pg):
@@ -353,9 +363,9 @@ if not TEST_WITH_DEV_DBG_ASAN:
             Tests that coalescing manager w/TORCH_DISTRIBUTED_DEBUG
             does not crash: https://github.com/pytorch/pytorch/issues/109520
             """
-            torch.accelerator.set_device_idx(self.rank)
+            torch.accelerator.set_device_index(self.rank)
             pg = self._create_wrapper_pg(with_new_group=True)
-            dev = torch.accelerator.current_device_idx()
+            dev = torch.accelerator.current_device_index()
             pg._start_coalescing(torch.device(dev))
             pg.allreduce([torch.ones(1, device=dev)])
             pg._end_coalescing(torch.device(dev))
@@ -453,32 +463,32 @@ class ProcessGroupGlooWrapperTest(AbstractProcessGroupWrapperTest):
     @with_dist_debug_levels(levels=["DETAIL"])
     def test_collectives_op_mismatch_cuda_debug_mode(self):
         pg = self._create_wrapper_pg(with_new_group=True)
-        self._test_collectives_op_mismatch(pg, use_cuda=True)
+        self._test_collectives_op_mismatch(pg, use_accel=True)
 
     @skip_if_lt_x_gpu(4)
     @unittest.skipIf(TEST_XPU, "XPU does not support gloo backend")
     @with_dist_debug_levels(levels=["OFF"])
     def test_collectives_op_mismatch_cuda(self):
         pg = self._create_wrapper_pg(with_new_group=False)
-        self._test_collectives_op_mismatch(pg, use_cuda=True)
+        self._test_collectives_op_mismatch(pg, use_accel=True)
 
     @skip_if_lt_x_gpu(4)
     @unittest.skipIf(TEST_XPU, "XPU does not support gloo backend")
     @with_dist_debug_levels(levels=["DETAIL"])
     def test_collective_shape_mismatch_cuda_debug_mode(self):
         pg = self._create_wrapper_pg(with_new_group=True)
-        self._test_collective_shape_mismatch(pg, use_cuda=True)
+        self._test_collective_shape_mismatch(pg, use_accel=True)
 
     @skip_if_lt_x_gpu(4)
     @with_dist_debug_levels(levels=["OFF"])
     def test_collective_shape_mismatch_cuda(self):
         pg = self._create_wrapper_pg(with_new_group=False)
-        self._test_collective_shape_mismatch(pg, use_cuda=True)
+        self._test_collective_shape_mismatch(pg, use_accel=True)
 
 
 if __name__ == "__main__":
-    assert not torch.accelerator.is_available(), (
-        "test_pg_wrapper must not have initialized CUDA context on main process"
+    assert not (torch.cuda.is_initialized() or torch.xpu.is_initialized()), (
+        "test_pg_wrapper must not have initialized CUDA/XPU context on main process"
     )
 
     run_tests()
