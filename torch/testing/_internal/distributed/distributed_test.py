@@ -6491,10 +6491,10 @@ class DistributedTest:
             When bucket_cap_mb_list is provided, it should be used to rebuild buckets.
             When not provided, original logic should be used.
             """
-            torch.cuda.set_device(self.rank)
+            torch.accelerator.set_device_index(self.rank)
 
             # Test 1: With bucket_cap_mb_list provided
-            model_with_list = LargeNet().cuda(self.rank)
+            model_with_list = LargeNet().to(self.rank)
             bucket_cap_mb_list = [1, 2]  # Two buckets with different sizes
             ddp_with_list = nn.parallel.DistributedDataParallel(
                 model_with_list,
@@ -6503,12 +6503,12 @@ class DistributedTest:
             )
 
             # Run a forward/backward pass to trigger bucket rebuilding
-            input_tensor = torch.randn(10, 1000).cuda(self.rank)
+            input_tensor = torch.randn(10, 1000).to(self.rank)
             loss = ddp_with_list(input_tensor).sum()
             loss.backward()
 
             # Run another iteration to trigger rebuild
-            input_tensor = torch.randn(10, 1000).cuda(self.rank)
+            input_tensor = torch.randn(10, 1000).to(self.rank)
             loss = ddp_with_list(input_tensor).sum()
             loss.backward()
 
@@ -6525,7 +6525,7 @@ class DistributedTest:
             )
 
             # Test 2: Without bucket_cap_mb_list (backward compatibility)
-            model_without_list = LargeNet().cuda(self.rank)
+            model_without_list = LargeNet().to(self.rank)
             ddp_without_list = nn.parallel.DistributedDataParallel(
                 model_without_list,
                 device_ids=[self.rank],
@@ -6533,12 +6533,12 @@ class DistributedTest:
             )
 
             # Run a forward/backward pass
-            input_tensor = torch.randn(10, 1000).cuda(self.rank)
+            input_tensor = torch.randn(10, 1000).to(self.rank)
             loss = ddp_without_list(input_tensor).sum()
             loss.backward()
 
             # Run another iteration to trigger rebuild
-            input_tensor = torch.randn(10, 1000).cuda(self.rank)
+            input_tensor = torch.randn(10, 1000).to(self.rank)
             loss = ddp_without_list(input_tensor).sum()
             loss.backward()
 
