@@ -718,7 +718,8 @@ class ElasticLaunchTest(TestCase):
             default0 = []
             default1 = []
             for line in output.splitlines():
-                if "cuda:" not in line:
+                # Check for accelerator device references (cuda: or xpu:)
+                if not any(dev in line for dev in ("cuda:", "xpu:")):
                     continue
                 if line.startswith("[default0]:"):
                     default0.append(line[11:])
