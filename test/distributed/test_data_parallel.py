@@ -16,7 +16,7 @@ from torch.testing._internal.common_cuda import TEST_CUDA
 from torch.testing._internal.common_device_type import (
     dtypes,
     instantiate_device_type_tests,
-    onlyCUDA,
+    onlyOn,
     skipMeta,
 )
 from torch.testing._internal.common_utils import (
@@ -958,6 +958,7 @@ class TestDataParallel(TestCase):
 
 
 class TestDataParallelDeviceType(TestCase):
+    @onlyOn(["cuda", "xpu"])
     @skipMeta
     @dtypes(torch.float, torch.double, torch.half)
     def test_data_parallel_module(self, device, dtype):
@@ -969,6 +970,7 @@ class TestDataParallelDeviceType(TestCase):
         self.assertEqual(out.get_device(), 0)
         self.assertEqual(out, expected_out, atol=dtype2prec_DONTUSE[dtype], rtol=0)
 
+    @onlyOn(["cuda", "xpu"])
     @skipMeta
     @dtypes(torch.float, torch.double, torch.half)
     def test_data_parallel_module_kwargs_only(self, device, dtype):
@@ -988,6 +990,7 @@ class TestDataParallelDeviceType(TestCase):
         self.assertEqual(out.get_device(), 0)
         self.assertEqual(out, expected_out, atol=dtype2prec_DONTUSE[dtype], rtol=0)
 
+    @onlyOn(["cuda", "xpu"])
     @skipMeta
     @dtypes(torch.float, torch.double, torch.half)
     def test_data_parallel_module_kwargs_only_empty_list(self, device, dtype):
@@ -1007,6 +1010,7 @@ class TestDataParallelDeviceType(TestCase):
         self.assertEqual(out.get_device(), 0)
         self.assertEqual(out, expected_out, atol=dtype2prec_DONTUSE[dtype], rtol=0)
 
+    @onlyOn(["cuda", "xpu"])
     @skipMeta
     @dtypes(torch.float, torch.double, torch.half)
     def test_data_parallel_module_kwargs_only_empty_dict(self, device, dtype):
@@ -1026,6 +1030,7 @@ class TestDataParallelDeviceType(TestCase):
         self.assertEqual(out.get_device(), 0)
         self.assertEqual(out, expected_out, atol=dtype2prec_DONTUSE[dtype], rtol=0)
 
+    @onlyOn(["cuda", "xpu"])
     @skipMeta
     @dtypes(torch.float, torch.double, torch.half)
     def test_data_parallel_module_kwargs_only_empty_tuple(self, device, dtype):
