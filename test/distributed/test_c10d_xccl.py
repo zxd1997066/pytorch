@@ -88,13 +88,7 @@ if TEST_WITH_DEV_DBG_ASAN:
     )
     sys.exit(0)
 
-# BFLOAT16_AVAILABLE = torch.xpu.is_available() and (
-#     torch.version.xpu is not None or torch.version.hip is not None
-# )
 
-# CUDA_12_AND_ABOVE = torch.xpu.is_available() and (
-#     torch.version.xpu is not None and int(torch.version.xpu.split(".")[0]) >= 12
-# )
 
 _start_time = time.time()
 _logger = logging.getLogger(__name__)
@@ -1032,7 +1026,7 @@ class ProcessGroupXCCLGroupTest(MultiProcessTestCase):
             self.assertTrue(bankend._verify_work_timeout(w, timedelta(seconds=8)))
             w.wait()
 
-    # #@requires_xccl_version((2, 18), "Need XCCL 2.18+ for xcclCommSplit")
+    
     @skip_but_pass_in_sandcastle_if(not TEST_MULTIGPU, "XCCL test requires 2+ XPUs")
     @parametrize("eager_init", [True, False])
     def test_new_group(self, eager_init: bool):
@@ -1053,7 +1047,7 @@ class ProcessGroupXCCLGroupTest(MultiProcessTestCase):
         dist.broadcast(tensor, 0, group=ng)
         dist.destroy_process_group()
 
-    # #@requires_xccl_version((2, 18), "Need XCCL 2.18+ for xcclCommSplit")
+    
     @skip_but_pass_in_sandcastle_if(not TEST_MULTIGPU, "XCCL test requires 2+ XPUs")
     # @skip_but_pass_in_sandcastle_if(
     #     torch.xpu.xccl.version()[-1] == "x", "XCCL test not for XCCLX"
@@ -1080,7 +1074,7 @@ class ProcessGroupXCCLGroupTest(MultiProcessTestCase):
         self.assertEqual(tensor, original_tensor)
         dist.destroy_process_group()
 
-    # #@requires_xccl_version((2, 18), "Need XCCL 2.18+ for xcclCommSplit")
+    
     @skip_but_pass_in_sandcastle_if(not TEST_MULTIGPU, "XCCL test requires 2+ XPUs")
     def test_comm_eager_init_subgroup(self):
         # Test `xcclCommSplit` for smaller subgroups of the world when
@@ -1100,7 +1094,7 @@ class ProcessGroupXCCLGroupTest(MultiProcessTestCase):
         torch.xpu.synchronize()
         dist.destroy_process_group()
 
-    # #@requires_xccl_version((2, 18), "Need XCCL 2.18+ for xcclCommSplit")
+    
     @skip_but_pass_in_sandcastle_if(not TEST_MULTIGPU, "XCCL test requires 2+ XPUs")
     def test_comm_split_group(self):
         # Test `xcclCommSplit` for smaller subgroups of the world when
@@ -1143,7 +1137,7 @@ class ProcessGroupXCCLGroupTest(MultiProcessTestCase):
 
         dist.destroy_process_group()
 
-    # #@requires_xccl_version((2, 18), "Need XCCL 2.18+ for xcclCommSplit")
+    
     @skip_but_pass_in_sandcastle_if(not TEST_MULTIGPU, "XCCL test requires 2+ XPUs")
     def test_comm_split_group_mixed_backend(self):
         # Test `xcclCommSplit` for smaller subgroups of the world when
@@ -1199,7 +1193,7 @@ class ProcessGroupXCCLGroupTest(MultiProcessTestCase):
 
         dist.destroy_process_group()
 
-    # #@requires_xccl_version((2, 18), "Need XCCL 2.18+ for xcclCommSplit")
+    
     @skip_but_pass_in_sandcastle_if(not TEST_MULTIGPU, "XCCL test requires 2+ XPUs")
     def test_non_blocking_init(self):
         # Test creating a pg using nonblocking mode but not eagerly
@@ -1221,7 +1215,7 @@ class ProcessGroupXCCLGroupTest(MultiProcessTestCase):
         self.assertEqual(backend.comm_split_count(), 0)
         dist.destroy_process_group()
 
-    ##@requires_xccl_version((2, 18), "Need XCCL 2.18+ for xcclCommSplit")
+    
     @skip_but_pass_in_sandcastle_if(not TEST_MULTIGPU, "XCCL test requires 2+ XPUs")
     def test_non_blocking_with_eager_init(self):
         # Test creating a pg eagerly with nonblocking mode when
@@ -6557,7 +6551,7 @@ class ProcessGroupXCCLLargerScaleTest(MultiProcessTestCase):
         # return rank to GPU map
         return init_multigpu_helper(self.world_size, "xccl")
 
-    #@requires_xccl_version((2, 18), "Need XCCL 2.18+ for xcclCommSplit")
+    
     @skip_if_lt_x_gpu(8)
     def test_comm_split_group_larger_scale(self):
         store = c10d.FileStore(self.file_name, self.world_size)
@@ -6593,7 +6587,7 @@ class ProcessGroupXCCLLargerScaleTest(MultiProcessTestCase):
         torch.xpu.synchronize()
         dist.destroy_process_group()
 
-    #@requires_xccl_version((2, 18), "Need XCCL 2.18+ for xcclCommSplit")
+    
     @skip_if_lt_x_gpu(8)
     def test_comm_recursive_split_group(self):
         store = c10d.FileStore(self.file_name, self.world_size)
