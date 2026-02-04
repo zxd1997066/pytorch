@@ -287,6 +287,7 @@ class Backend(str):  # noqa: SLOT000
         XCCL: ["xpu"],
         UCC: ["cpu", "cuda"],
         MPI: ["cpu", "cuda", "xpu"],
+        FAKE: ["cpu", "cuda", "hpu", "xpu"],
     }
 
     backend_type_map: dict[str, ProcessGroup.BackendType] = {
