@@ -40,7 +40,7 @@ from torch.testing._internal.common_fsdp import (
     DEVICEInitMode,
     DummyProcessGroup,
     FSDPInitMode,
-    FSDPTest,
+    FSDPTestContinuous,
     TransformerWithSharedParams,
 )
 from torch.testing._internal.common_utils import (
@@ -129,7 +129,7 @@ class WrapMethod(Enum):
     WRAP_API = auto()
 
 
-class TestFSDPWrap(FSDPTest):
+class TestFSDPWrap(FSDPTestContinuous):
     """
     Tests main API for wrapping FSDP, which is to pass auto_wrap_policy into
     FSDP constructor.
