@@ -22,6 +22,7 @@ from typing_extensions import deprecated
 
 import torch
 from torch._C import _DistStoreError as DistStoreError
+
 from torch._C._distributed_c10d import (
     _DistributedBackendOptions,
     _register_process_group,
@@ -146,6 +147,7 @@ _unpickler = pickle.Unpickler
 
 GroupName = NewType("GroupName", str)
 
+device_type = torch._C._get_accelerator().type
 
 # Change __module__ of all imported types from torch._C._distributed_c10d that are public
 def _export_c_types() -> None:
@@ -285,7 +287,7 @@ class Backend(str):  # noqa: SLOT000
         NCCL: ["cuda"],
         XCCL: ["xpu"],
         UCC: ["cpu", "cuda"],
-        MPI: ["cpu", "cuda"],
+        MPI: ["cpu", "cuda", "xpu"],
         FAKE: ["cpu", "cuda", "hpu", "xpu"],
     }
 
@@ -387,7 +389,7 @@ class BackendConfig:
         if backend == Backend.UNDEFINED:
             # Detect the accelerator on the machine. If no accelerator is
             # available, it returns CPU.
-            device_type = torch._C._get_accelerator().type
+            # device_type = torch._C._get_accelerator().type
             try:
                 backend_str = Backend.default_device_backend_map[device_type]
                 self.device_backend_map[device_type] = Backend(backend_str)
@@ -411,7 +413,7 @@ class BackendConfig:
             # e.g. "cpu:gloo,cuda:nccl"
             backend_str_error_message = f"""The custom backend string argument is invalid: {backend}.
                 Custom backend string is an experimental feature where the backend string must be in the format:
-                "<device_type1>:<backend1>,<device_type2>:<backend2>...". e.g. 'cpu:gloo,cuda:nccl'"""
+                "<device_type1>:<backend1>,<device_type2>:<backend2>...". e.g. 'cpu:gloo,cuda:nccl,xpu:xccl'"""
 
             # parse the backend string and populate the device_backend_map
             for device_backend_pair_str in backend.lower().split(","):
@@ -1439,7 +1441,7 @@ def get_default_backend_for_device(device: str | torch.device) -> str:
 def _get_process_group_uid(pg: ProcessGroup) -> int:
     backend = None
     try:
-        backend = pg._get_backend(torch.device("cuda"))
+        backend = pg._get_backend(torch.device(device_type))
     except RuntimeError:
         pass
     if is_nccl_available() and isinstance(backend, ProcessGroupNCCL):
@@ -1526,10 +1528,12 @@ def _add_ephemeral_timeout_for_all_pgs(timeout: timedelta) -> None:
     """
     for pg in _world.pg_map:
         devices = pg._device_types
-        if torch.device("cuda") in devices:
-            backend = pg._get_backend(torch.device("cuda"))
+        
+        if torch.device(device_type) in devices:
+            backend = pg._get_backend(torch.device(device_type))
             if is_nccl_available() and isinstance(backend, ProcessGroupNCCL):
                 backend._add_ephemeral_timeout(timeout)
+        
 
 
 def _set_pg_timeout(timeout: timedelta, group: ProcessGroup | None = None) -> None:
@@ -1552,6 +1556,7 @@ def _set_pg_timeout(timeout: timedelta, group: ProcessGroup | None = None) -> No
     Returns:
         None
     """
+    
     if group is None:
         group = _get_default_group()
     if _rank_not_in_group(group):
@@ -1567,6 +1572,12 @@ def _set_pg_timeout(timeout: timedelta, group: ProcessGroup | None = None) -> No
     if torch.device("cuda") in devices:
         backend = group._get_backend(torch.device("cuda"))
         if is_nccl_available() and isinstance(backend, ProcessGroupNCCL):
+            backends.add(backend)  # type: ignore[arg-type]
+        elif is_gloo_available() and isinstance(backend, ProcessGroupGloo):
+            backends.add(backend)  # type: ignore[arg-type]
+    if torch.device("xpu") in devices:
+        backend = group._get_backend(torch.device("xpu"))
+        if is_xccl_available() and isinstance(backend, ProcessGroupXCCL):
             backends.add(backend)  # type: ignore[arg-type]
         elif is_gloo_available() and isinstance(backend, ProcessGroupGloo):
             backends.add(backend)  # type: ignore[arg-type]
@@ -1880,9 +1891,10 @@ def _get_split_source(pg: ProcessGroup):
     split_from = None
     if pg.bound_device_id:
         split_from = pg._get_backend(pg.bound_device_id)
+        
     elif pg is _world.default_pg:
         try:
-            split_from = pg._get_backend(torch.device("cuda"))
+            split_from = pg._get_backend(torch.device(device_type))
         except RuntimeError:
             # no cuda device associated with this backend
             pass
@@ -1993,6 +2005,8 @@ def _new_process_group_helper(
             # so we can correctly call getDefaultBackend which in ProcessGroup.
             if Backend.NCCL in backend_config.get_device_backend_map().values():
                 pg._set_default_backend(ProcessGroup.BackendType.NCCL)
+            elif Backend.XCCL in backend_config.get_device_backend_map().values():
+                pg._set_default_backend(ProcessGroup.BackendType.XCCL)
             else:
                 pg._set_default_backend(ProcessGroup.BackendType.GLOO)
         else:
@@ -2339,7 +2353,7 @@ def _abort_process_group(group: ProcessGroup | None = None):
         raise ValueError("Invalid process group specified or has been destroyed.")
 
     try:
-        backend = pg._get_backend(torch.device("cuda"))
+        backend = pg._get_backend(torch.device(device_type))
     except RuntimeError:
         backend = None
 
@@ -5204,7 +5218,7 @@ def split_group(
         )
 
     parent_group_rank = parent_global_to_group_ranks[global_rank]
-    parent_backend = parent_pg._get_backend(torch.device("cuda"))
+    parent_backend = parent_pg._get_backend(torch.device(device_type))
 
     # if the parent backend does not support splitting, raise error
     # currently this API only support NCCL backend
@@ -5270,7 +5284,7 @@ def split_group(
 
     global_ranks_in_my_group = [parent_group_to_global_ranks[rank] for rank in my_group]
     split_pg.bound_device_id = device_id  # type: ignore[union-attr]
-    split_backend_class = split_pg._get_backend(torch.device("cuda"))
+    split_backend_class = split_pg._get_backend(torch.device(device_type))
     split_backend_class._set_sequence_number_for_group()
     if split_pg.group_name != group_name:
         raise AssertionError(
@@ -5586,13 +5600,13 @@ def new_subgroups(
         >>>     dist.destroy_process_group(subgroup)
     """
     if group_size is None:
-        if not torch.cuda.is_available():
+        if not torch.accelerator.is_available():
             raise ValueError(
-                "Default group size only takes effect when CUDA is available."
-                "If your subgroup using a backend that does not depend on CUDA,"
+                "Default group size only takes effect when CUDA/XPU is available."
+                "If your subgroup using a backend that does not depend on CUDA/XPU,"
                 "please pass in 'group_size' correctly."
             )
-        group_size = torch.cuda.device_count()
+        group_size = torch.accelerator.device_count()
     if group_size <= 0:
         raise ValueError(f"The arg 'group_size' ({group_size}) must be positive")
 
@@ -5908,7 +5922,7 @@ def _validate_shrink_backend_requirements(group_info: dict) -> Any:
         else:
             # Try CUDA first if available, else CPU
             try:
-                backend_impl = target_pg._get_backend(torch.device("cuda"))
+                backend_impl = target_pg._get_backend(torch.device(device_type))
             except Exception:
                 backend_impl = target_pg._get_backend(torch.device("cpu"))
     except RuntimeError as e:
@@ -6096,6 +6110,8 @@ def _create_shrunk_process_group(
     # Choose backend enum based on device type
     if backend_device.type == "cuda":
         backend_type = ProcessGroup.BackendType.NCCL
+    elif backend_device.type == "xpu":
+        backend_type = ProcessGroup.BackendType.XCCL
     else:
         backend_type = ProcessGroup.BackendType.GLOO
 
