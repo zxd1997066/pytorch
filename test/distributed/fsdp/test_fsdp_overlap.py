@@ -250,7 +250,6 @@ class TestForwardOverlapWorldSizeOne(FSDPTestContinuous):
             self.assertTrue(compute_only + all_gather_only > 1.1 * both)
 
     @unittest.skipIf(TEST_HPU, "HPU doesn't has HW sleep API support, skipping")
-    @xfailIf(TEST_XPU)  # https://github.com/intel/torch-xpu-ops/issues/1504
     @skip_if_lt_x_gpu(2)
     def test_forward_overlap(self):
         self._dist_train()
