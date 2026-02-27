@@ -222,8 +222,10 @@ class DistributedDataParallelCommHookTest(DistributedTestBase):
 
 
 if __name__ == "__main__":
-    assert not torch.accelerator.is_available(), (
-        "test_distributed must not have initialized GPU context on main process"
-    )
+    mod = torch.get_device_module(torch.accelerator.current_accelerator().type)
+    if mod._initialized:
+        raise AssertionError(
+            "test_distributed must not have initialized accelerator context on main process"
+        )
 
     run_tests()

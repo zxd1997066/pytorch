@@ -13,7 +13,10 @@ from torch.distributed.collective_utils import (
 )
 from torch.distributed.device_mesh import init_device_mesh
 from torch.testing import FileCheck
-from torch.testing._internal.common_distributed import MultiProcessTestCase
+from torch.testing._internal.common_distributed import (
+    MultiProcessTestCase,
+    skip_if_lt_x_gpu,
+)
 from torch.testing._internal.common_utils import (
     instantiate_parametrized_tests,
     parametrize,
@@ -52,7 +55,8 @@ class TestCollectiveUtils(MultiProcessTestCase):
         func.return_value = pg.rank()
 
         res = broadcast(data_or_fn=func, rank=0, pg=pg)
-        assert res == 0, f"Expect res to be 0 (got {res})"
+        if res != 0:
+            raise AssertionError(f"Expect res to be 0 (got {res})")
 
         if pg.rank() == 0:
             func.assert_called_once()
@@ -62,7 +66,8 @@ class TestCollectiveUtils(MultiProcessTestCase):
         func.reset_mock()
 
         res = broadcast(data_or_fn=func, rank=1, pg=pg)
-        assert res == 1, f"Expect res to be 1 (got {res})"
+        if res != 1:
+            raise AssertionError(f"Expect res to be 1 (got {res})")
 
         if pg.rank() == 1:
             func.assert_called_once()
@@ -106,9 +111,10 @@ class TestCollectiveUtils(MultiProcessTestCase):
 
         res = all_gather(data_or_fn=func, pg=pg)
         func.assert_called_once()
-        assert res == list(range(self.world_size)), (
-            f"Expect res to be list of 0 through {self.world_size} (got {res})"
-        )
+        if res != list(range(self.world_size)):
+            raise AssertionError(
+                f"Expect res to be list of 0 through {self.world_size} (got {res})"
+            )
 
     def test_all_gather_result_no_pg(self) -> None:
         """
@@ -133,6 +139,7 @@ class TestCollectiveUtils(MultiProcessTestCase):
             all_gather(data_or_fn=func)
 
     @parametrize("device", ["cpu", device_type])
+    @skip_if_lt_x_gpu(4)
     def test_check_rng_sync(
         self,
         device,

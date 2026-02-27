@@ -208,8 +208,9 @@ class TestCollectives(TestCase):
 
 if __name__ == "__main__":
     mod = torch.get_device_module(torch.accelerator.current_accelerator().type)
-    assert (
-        not mod._initialized
-    ), "test_distributed must not have initialized accelerator context on main process"
+    if mod._initialized:
+        raise AssertionError(
+            "test_distributed must not have initialized accelerator context on main process"
+        )
 
     run_tests()
