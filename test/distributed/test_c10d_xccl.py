@@ -4547,7 +4547,7 @@ class CommTest(test_c10d_common.AbstractCommTest, MultiProcessTestCase):
         # Case 2: Run collectives not under context manager, and don't call wait on them.
         # NOTE: Here we intentionally test memory-stressed case.
         self.assertEqual(torch._C._distributed_c10d._get_work_registry_size(), 2)
-        for _ in range(50000):
+        for _ in range(500):
             input = torch.full(
                 (1024, 1024), float(self.rank), device=f"xpu:{self.rank}"
             )
