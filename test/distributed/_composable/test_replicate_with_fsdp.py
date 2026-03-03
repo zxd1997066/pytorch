@@ -51,11 +51,11 @@ class ReplicateTest(MultiProcContinuousTest):
 
     @classmethod
     def backend_str(cls) -> str:
-        return "nccl"
+        return "xccl"
 
     @classmethod
     def device_type(cls) -> str:
-        return "cuda"
+        return "xpu"
 
     @classmethod
     def _init_pg(cls, rank, world_size, rdvz_file):
