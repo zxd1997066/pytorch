@@ -1786,7 +1786,7 @@ class PythonProcessGroupExtensionTest(MultiProcessTestCase):
             (dist.Backend.GLOO, "cpu:gloo,cuda:gloo"),
             (dist.Backend.XCCL, "xpu:xccl"),
             (dist.Backend.NCCL, "cuda:nccl"),
-            (dist.Backend.MPI, "cpu:mpi,cuda:mpi"),
+            (dist.Backend.MPI, "cpu:mpi,cuda:mpi,xpu:mpi"),
             (dist.Backend.UCC, "cpu:ucc,cuda:ucc"),
             (dist.Backend.DUMMY, "cpu:dummy,cuda:dummy,xpu:dummy"),
             ("DUMMY", "cpu:dummy,cuda:dummy,xpu:dummy"),
