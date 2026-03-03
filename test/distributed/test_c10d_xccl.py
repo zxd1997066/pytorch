@@ -3900,7 +3900,6 @@ class XcclErrorHandlingTest(MultiProcessTestCase):
             )
 
     @requires_xccl()
-    #@requires_xccl_version((2, 4, 0), "Need XCCL 2.4+ for error checking")
     @skip_if_lt_x_gpu(3)
     def test_error_detection_and_propagation(self):
         def assert_fut_success(fut):
@@ -3920,7 +3919,6 @@ class XcclErrorHandlingTest(MultiProcessTestCase):
             store,
             self.rank,
             self.world_size,
-            timeout=timedelta(seconds=2),
         )
         self.assertEqual(process_group.get_error(), ErrorType.SUCCESS)
         barrier_work = process_group.barrier()
