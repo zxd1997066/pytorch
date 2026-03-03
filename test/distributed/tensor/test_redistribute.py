@@ -1524,6 +1524,7 @@ class DistributeWithDeviceOrderTest(DTensorTestBase):
         self.assertEqual(x_ordered_dt.to_local(), x_strided_dt.to_local())
 
     @with_comms
+    @skip_if_lt_x_gpu(8)
     def test_ordered_all_gather_with_flattening(self):
         """Test that flattened all_gather produces correct results with non-ascending shard order.
 
@@ -1605,6 +1606,7 @@ class DistributeWithDeviceOrderTest(DTensorTestBase):
         self.assertEqual(non_ascending_result.to_local(), input_data)
 
     @with_comms
+    @skip_if_lt_x_gpu(8)
     def test_debug_mode_shows_optimized_trace(self):
         """Test that DebugMode captures the optimized (flattened) redistribution trace.
 
