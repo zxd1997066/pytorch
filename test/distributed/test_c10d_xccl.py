@@ -3862,7 +3862,6 @@ class XcclErrorHandlingTest(MultiProcessTestCase):
             store,
             self.rank,
             self.world_size,
-            timeout=timedelta(seconds=10),
         )
         process_group.barrier().wait()
         if self.rank == 0:
