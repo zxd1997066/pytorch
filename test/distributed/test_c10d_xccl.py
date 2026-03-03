@@ -2226,7 +2226,7 @@ class DistributedDataParallelTest(
         store = c10d.FileStore(self.file_name, self.world_size)
         # provide sufficient timeout to initialize XCCL comm.
         pg = c10d.ProcessGroupXCCL(
-            store, self.rank, self.world_size, timeout=timedelta(seconds=15)
+            store, self.rank, self.world_size
         )
         pg_gloo = c10d.ProcessGroupGloo(store, self.rank, self.world_size)
         pg.barrier().wait(timedelta(seconds=5))
