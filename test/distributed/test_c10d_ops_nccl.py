@@ -50,7 +50,7 @@ class ProcessGroupNCCLOpTest(MultiProcContinuousTest):
 
     @classmethod
     def opts(cls, high_priority_stream=False):
-        opts = c10d.ProcessGroupNCCL.Options()
+        opts = c10d.ProcessGroupXCCL.Options()
         opts.is_high_priority_stream = high_priority_stream
         return opts
 
