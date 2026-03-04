@@ -349,7 +349,7 @@ class ProcessGroupNCCLOpTest(MultiProcContinuousTest):
         # because NCCL didn't properly handle multisegment memory in graphs.
         local_device_idx = self.rank_to_GPU[self.rank][0]
         torch.accelerator.set_device_index(local_device_idx)
-        torch._C._accelerator_setAllocatorSettings("expandable_segments:True")
+        # torch._C._accelerator_setAllocatorSettings("expandable_segments:True")
 
         b, t, d = 64, 1, 101024
         inp = torch.ones((b, t, d), device="xpu") * (self.rank + 1)
@@ -372,7 +372,7 @@ class ProcessGroupNCCLOpTest(MultiProcContinuousTest):
         torch.accelerator.synchronize()
 
         self.assertEqual(static_output.sum().item(), expected_sum)
-        torch._C._accelerator_setAllocatorSettings("expandable_segments:False")
+        # torch._C._accelerator_setAllocatorSettings("expandable_segments:False")
 
     @requires_nccl()
     @skip_but_pass_in_sandcastle_if(not TEST_MULTIGPU, "NCCL test requires 2+ GPUs")
