@@ -36,11 +36,11 @@ from torch.testing._internal.common_utils import (
 )
 
 
-if TEST_WITH_DEV_DBG_ASAN:
-    print(
-        "Skip ASAN as torch + multiprocessing spawn have known issues", file=sys.stderr
-    )
-    sys.exit(0)
+# if TEST_WITH_DEV_DBG_ASAN:
+#     print(
+#         "Skip ASAN as torch + multiprocessing spawn have known issues", file=sys.stderr
+#     )
+#     sys.exit(0)
 
 
 class ProcessGroupNCCLOpTest(MultiProcContinuousTest):
