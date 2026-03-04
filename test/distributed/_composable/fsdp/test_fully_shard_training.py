@@ -1817,7 +1817,7 @@ class TestFullyShardCudaGraph(FSDPTest):
         # stream capture to graph
         static_input = input_tensor.clone()
         graph = torch.xpu.XPUGraph()
-        with torch.xpu.graph(g, stream=stream):
+        with torch.xpu.graph(graph, stream=stream):
             static_output = model(static_input)
             static_output.sum().backward()
             static_output_grads = [
