@@ -1835,6 +1835,7 @@ class TestFullyShardCudaGraph(FSDPTest):
                 ]
 
                 static_input.copy_(replay_input)
+                graph.replay()
                 self.assertTrue(torch.equal(static_output, ref_output))
                 for graph_grad, ref_grad in zip(static_output_grads, ref_grads):
                     self.assertTrue(torch.equal(graph_grad, ref_grad))
