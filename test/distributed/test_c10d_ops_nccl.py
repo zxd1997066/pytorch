@@ -46,7 +46,7 @@ from torch.testing._internal.common_utils import (
 class ProcessGroupNCCLOpTest(MultiProcContinuousTest):
     @classmethod
     def backend_str(cls) -> str:
-        return "nccl"
+        return "xccl"
 
     @classmethod
     def opts(cls, high_priority_stream=False):
