@@ -3,7 +3,6 @@ import datetime
 import functools
 import unittest
 from collections import Counter
-from typing import Optional
 from unittest import mock
 from unittest.mock import patch
 
@@ -1539,7 +1538,7 @@ class TestCollectivesInductor(DynamoDistributedSingleProcTestCase):
         inputs = torch.ones(4, 4, device=self.device)
 
         # get stats directly from the internal helper without affecting the real pass's signature
-        node_stats: Optional[dict[BaseSchedulerNode, ReorderInfo]] = None
+        node_stats: dict[BaseSchedulerNode, ReorderInfo] | None = None
 
         def _reorder_communication_preserving_peak_memory(
             snodes: list[BaseSchedulerNode],
@@ -2005,7 +2004,7 @@ class TestCollectivesInductor(DynamoDistributedSingleProcTestCase):
         inputs = [x, w, ag_0, ag_1, ag_2, ag_3]
 
         # get stats directly from the internal helper without affecting the real pass's signature
-        node_stats: Optional[dict[BaseSchedulerNode, ReorderInfo]] = None
+        node_stats: dict[BaseSchedulerNode, ReorderInfo] | None = None
 
         def _reorder_communication_preserving_peak_memory(
             snodes: list[BaseSchedulerNode],
@@ -2133,7 +2132,7 @@ class TestCollectivesInductor(DynamoDistributedSingleProcTestCase):
         inputs = torch.ones(4, 4, device=self.device)
 
         # get stats directly from the internal helper without affecting the real pass's signature
-        node_stats: Optional[dict[BaseSchedulerNode, ReorderInfo]] = None
+        node_stats: dict[BaseSchedulerNode, ReorderInfo] | None = None
 
         def _reorder_communication_preserving_peak_memory(
             snodes: list[BaseSchedulerNode],
