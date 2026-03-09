@@ -528,7 +528,7 @@ class TestFullyShardMixedPrecisionTraining(FSDPTest):
 
         torch.manual_seed(1)  # same on all ranks
         for iter_idx in range(10):
-            global_inp = torch.rand((global_batch_size, dim), device=device_type.type)
+            global_inp = torch.rand((global_batch_size, dim), device=device_type)
             local_inp = global_inp[
                 self.rank * local_batch_size : (self.rank + 1) * local_batch_size
             ].detach()
