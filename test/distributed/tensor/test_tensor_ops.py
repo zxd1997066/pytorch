@@ -3,6 +3,7 @@
 
 import itertools
 import unittest
+import sys
 
 import torch
 from torch.distributed._local_tensor import LocalTensorMode
@@ -33,6 +34,7 @@ from torch.testing._internal.distributed._tensor.common_dtensor import (
     LocalDTensorTestBase,
     with_comms,
 )
+sys.path.append("../../../../test/distributed/tensor")
 
 
 class DistTensorOpsTest(DTensorContinuousTestBase):
