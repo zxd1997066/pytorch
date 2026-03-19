@@ -665,13 +665,13 @@ class TestFullyShardMixedPrecisionCasts(FSDPTestMultiThread):
             def forward(self, x: torch.Tensor) -> torch.Tensor:
                 self.forward_inputs["model_input_x"] = x
                 y = torch.ones(
-                    2, 100, device=device_type.type, dtype=torch.float32
+                    2, 100, device=device_type, dtype=torch.float32
                 )  # external input
                 return self.l2(self.l1(x), y)
 
         forward_inputs: dict[str, torch.Tensor] = {}
         model = ToyModel(forward_inputs).to(device_type)
-        x = torch.zeros(2, 100, device=device_type.type, dtype=torch.float32)
+        x = torch.zeros(2, 100, device=device_type, dtype=torch.float32)
         fully_shard(
             model.l2,
             mp_policy=MixedPrecisionPolicy(
@@ -758,7 +758,7 @@ class TestFullyShardMixedPrecisionCasts(FSDPTestMultiThread):
         model = nn.Sequential(
             nn.Linear(32, 32, dtype=init_dtype),
             nn.Linear(32, 32, dtype=init_dtype),
-        ).to(device_type.type)
+        ).to(device_type)
         mp_policy = MixedPrecisionPolicy(
             param_dtype=torch.bfloat16, reduce_dtype=torch.bfloat16
         )
@@ -780,7 +780,7 @@ class TestFullyShardMixedPrecisionCasts(FSDPTestMultiThread):
             reduce_scatter_with_assert, self, orig_reduce_scatter, assert_fn
         )
         with patch_reduce_scatter(reduce_scatter):
-            inp = torch.randn((4, 32), device=device_type.type)
+            inp = torch.randn((4, 32), device=device_type)
             loss = model(inp).sum()
             loss.backward()
 
