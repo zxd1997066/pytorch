@@ -1721,9 +1721,6 @@ class TestFullyShardForceSumReduction(FSDPTest):
 
     # Test reduce-scatter only on plain FSDP on 2 GPUs
     @skip_if_lt_x_gpu(2)
-    @unittest.skipIf(
-        TEST_XPU, "Related environment variable is not supported with XCCL"
-    )
     def test_fully_shard_force_sum_reduce_scatter(self):
         torch.manual_seed(42)
         model_args = ModelArgs()
@@ -1744,13 +1741,13 @@ class TestFullyShardForceSumReduction(FSDPTest):
         )
 
         torch.manual_seed(42 + self.rank)
-        inp = torch.randint(0, model_args.vocab_size, (2, 16), device="cuda")
+        inp = torch.randint(0, model_args.vocab_size, (2, 16), device=device_type)
 
         loss = model(inp)
         loss.sum().backward()
 
         torch.distributed.barrier()
-        torch.cuda.synchronize()
+        torch.accelerator.synchronize()
 
         with open(self.nccl_log_dir.name + "/nccl_log") as f:
             logs = f.read()
@@ -1776,9 +1773,6 @@ class TestFullyShardForceSumReduction(FSDPTest):
 
     # Test both reduce-scatter and all-reduce on HSDP (DDP+FSDP) on 4 GPUs
     @skip_if_lt_x_gpu(4)
-    @unittest.skipIf(
-        TEST_XPU, "Related environment variable is not supported with XCCL"
-    )
     def test_fully_shard_force_sum_both_reductions(self):
         mesh = init_device_mesh(
             device_type.type, (2, self.world_size // 2), mesh_dim_names=("ddp", "fsdp")
@@ -1809,13 +1803,13 @@ class TestFullyShardForceSumReduction(FSDPTest):
         )
 
         torch.manual_seed(42 + self.rank)
-        inp = torch.randint(0, model_args.vocab_size, (2, 16), device="cuda")
+        inp = torch.randint(0, model_args.vocab_size, (2, 16), device=device_type)
 
         loss = model(inp)
         loss.sum().backward()
 
         torch.distributed.barrier()
-        torch.cuda.synchronize()
+        torch.accelerator.synchronize()
 
         with open(self.nccl_log_dir.name + "/nccl_log") as f:
             logs = f.read()
