@@ -1082,8 +1082,8 @@ class TestFSDPMiscWorldSize1(FSDPTestMultiThread):
         inp = torch.randn((2, 10))
         with self.assertRaisesRegex(
             RuntimeError,
-            "An FSDP-managed module unexpectedly has parameters on cpu. Make "
-            "sure to move the module to cuda:0 before training.",
+            f"An FSDP-managed module unexpectedly has parameters on cpu. Make "
+            "sure to move the module to {device_type}:0 before training.",
         ):
             fsdp_model(inp)
 
