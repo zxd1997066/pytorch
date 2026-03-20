@@ -75,7 +75,6 @@ class TestFakePG(TestCase):
         FSDP(nn.Linear(2, 3, device=self.device_type))
 
     @skipIfHpu
-    @skipIfXpu
     @unittest.skipIf(not HAS_ACCELERATOR, "No accelerator")
     def test_fsdp_fake_e2e(self):
         store = dist.HashStore()
@@ -94,7 +93,6 @@ class TestFakePG(TestCase):
         optim.step()
 
     @skipIfHpu
-    @skipIfXpu
     @unittest.skipIf(not HAS_ACCELERATOR, "No accelerator")
     def test_fake_pg_tracing(self):
         store = dist.HashStore()
@@ -175,7 +173,6 @@ class TestFakePG(TestCase):
         self.assertEqual(tuple(output.shape), (3, 3))
 
     @skipIfHpu
-    @skipIfXpu
     @unittest.skipIf(not HAS_ACCELERATOR, "No accelerator")
     def test_fsdp_tp_fake_e2e(self):
         world_size = 4
