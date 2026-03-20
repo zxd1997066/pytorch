@@ -837,6 +837,25 @@ def forward(self, arg0_1, arg1_1):
 
         self.assertEqual(cnt.frame_count, 2)
 
+    @with_comms
+    @torch._dynamo.config.patch(trace_autograd_ops=True)
+    def test_dtensor_requires_grad_intermediate_backward(self):
+        mesh = DeviceMesh(self.device_type, torch.arange(self.world_size))
+
+        def fn(x):
+            y = x * 2
+            y.requires_grad_()
+            loss = (y * 3).sum()
+            loss.backward()
+            return y.grad
+
+        full_x = torch.randn(8, 8)
+        x = distribute_tensor(full_x, mesh, [Shard(0)])
+
+        ref = fn(x.full_tensor())
+        result = torch.compile(fn, backend="aot_eager", fullgraph=True)(x)
+        self.assertEqual(ref, result.full_tensor())
+
     def test_dtensor_attribute_access_on_intermediate(self):
         mesh = DeviceMesh(self.device_type, torch.arange(self.world_size))
 
@@ -1780,6 +1799,30 @@ class outer_fn(torch.nn.Module):
 
         # Test backward pass
         result.sum().backward()
+
+    def test_compile_optimizer_grad_view_base_dim_mismatch(self):
+        # Regression test for https://github.com/pytorch/pytorch/issues/176667
+        # When param._local_tensor is a view of an N-D base but
+        # grad._local_tensor is a view of a 1-D base (as in FSDP2's flat
+        # gradient buffer), dynamo's meta tensor creation must not reuse the
+        # param's symbolic context for the grad.
+        mesh = DeviceMesh(self.device_type, torch.arange(self.world_size))
+
+        # param: view of 2D base (simulates FSDP2 reshard padding)
+        param_local = torch.randn(32, 256)[:16]
+        param = DTensor.from_local(param_local, mesh, [Replicate()], run_check=False)
+        param.requires_grad_(True)
+        param.retain_grad()
+
+        # grad: view of 1D base (simulates FSDP2 flat gradient buffer)
+        grad_local = torch.randn(16 * 256 + 1000)[: 16 * 256].view(16, 256)
+        param.grad = DTensor.from_local(
+            grad_local, mesh, [Replicate()], run_check=False
+        )
+
+        opt = torch.optim.Adam([param], lr=1e-3)
+        compiled_step = torch.compile(opt.step, backend="aot_eager")
+        compiled_step()
 
 
 @instantiate_parametrized_tests
