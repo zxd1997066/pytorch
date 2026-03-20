@@ -1095,7 +1095,7 @@ class TestFSDPMiscWorldSize1(FSDPTestMultiThread):
         with self.assertRaisesRegex(
             RuntimeError,
             "An FSDP-managed module with parameter CPU offloading enabled has "
-            "parameters on cuda:0. Make sure to not move the module from CPU "
+            f"parameters on {device_type}:0. Make sure to not move the module from CPU "
             "when offloading parameters.",
         ):
             fsdp_model(inp)
