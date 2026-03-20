@@ -869,8 +869,8 @@ class TestFSDPMiscMultiThread(FSDPTestMultiThread):
             def __init__(self, rank):
                 super().__init__()
                 self.rank = rank
-                self.a = nn.Linear(1, 1).cuda(self.rank)
-                self.b = nn.Linear(1, 1).cuda((self.rank + 1) % dist.get_world_size())
+                self.a = nn.Linear(1, 1).to(self.rank)
+                self.b = nn.Linear(1, 1).to((self.rank + 1) % dist.get_world_size())
 
         with self.assertRaisesRegex(
             RuntimeError, "FSDP only supports single device modules"
@@ -903,7 +903,7 @@ class TestFSDPMiscMultiThread(FSDPTestMultiThread):
         context = (
             (
                 self.assertRaisesRegex(
-                    ValueError, f"Inconsistent.*cuda:{self.rank} vs cuda:0"
+                    ValueError, f"Inconsistent.*{device_type}:{self.rank} vs {device_type}:0"
                 )
             )
             if self.rank != 0
