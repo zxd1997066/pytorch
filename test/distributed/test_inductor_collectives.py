@@ -1698,7 +1698,7 @@ class TestCollectivesInductor(DynamoDistributedSingleProcTestCase):
                 torch.ops.c10d_functional.wait_tensor(ag_2_out),
             )
 
-        inputs = [torch.ones(64, device="cuda") for _ in range(3)]
+        inputs = [torch.ones(64, device=device_type) for _ in range(3)]
         with torch._inductor.config.patch(
             {
                 "bucket_all_gathers_fx": "all",
