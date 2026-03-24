@@ -60,10 +60,11 @@ from torch.testing._internal.inductor_utils import HAS_GPU
 from torch.utils._python_dispatch import TorchDispatchMode
 
 
+device_type = acc.type if (acc := torch.accelerator.current_accelerator()) else "cpu"
+
 @requires_accelerator_dist_backend(["nccl", "xccl"])
 @instantiate_parametrized_tests
 class TestCollectivesMultiProc(DynamoDistributedMultiProcTestCase):
-    device_type = torch.accelerator.current_accelerator().type
     """
     Run correctness checks in multi-proc runner, mark with minimum # GPUs to run under
     """
@@ -831,7 +832,6 @@ class TestCollectivesMultiProc(DynamoDistributedMultiProcTestCase):
     "No accelerator is available",
 )
 class TestCollectivesInductor(DynamoDistributedSingleProcTestCase):
-    device_type = torch.accelerator.current_accelerator().type
     """
     Prefer single-proc test runner for basic tests as it is easier to work with.
     """
@@ -2245,7 +2245,6 @@ class TestSyncDecisionCrossRanks(MultiProcessTestCase):
 
     @property
     def device(self) -> torch.device:
-        device_type = torch.accelerator.current_accelerator().type
         return torch.device(f"{device_type}:{self.rank}")
 
     def _init_process_group(self) -> None:
