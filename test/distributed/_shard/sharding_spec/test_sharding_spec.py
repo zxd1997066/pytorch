@@ -41,6 +41,7 @@ from torch.testing._internal.distributed._shard.sharded_tensor._test_st_common i
 device_type = (
     acc.type if (acc := torch.accelerator.current_accelerator(True)) else "cpu"
 )
+backend = torch.distributed.get_default_backend_for_device(device_type)
 
 class TestShardingSpec(TestCase):
     @skip_if_lt_x_gpu(2)
@@ -635,7 +636,7 @@ class TestCustomShardingSpec(ShardedTensorTestBase):
         meta = grid_spec.build_metadata(torch.Size((8, 8)), tensor_properties)
         check_tensor(meta.shards_metadata, torch.Size((8, 8)))
 
-    @with_comms
+    @with_comms(backend=backend)
     @skip_if_lt_x_gpu(4)
     @requires_accelerator_dist_backend(["nccl", "xccl"])
     def test_custom_sharding_spec_tensor_ctor(self):
@@ -662,7 +663,7 @@ class TestCustomShardingSpec(ShardedTensorTestBase):
         self.assertEqual((2, 2), local_shard.size())
         self.assertEqual(local_shard, torch.ones(2, 2))
 
-    @with_comms
+    @with_comms(backend=backend)
     @skip_if_lt_x_gpu(4)
     @requires_accelerator_dist_backend(["nccl", "xccl"])
     def test_custom_sharding_spec_shard_tensor(self):
