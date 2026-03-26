@@ -18,6 +18,10 @@ from torch.testing._internal.distributed._shard.sharded_tensor._test_ops_common 
     generate_local_weight_sharding_params_for_test,
 )
 
+device_type = (
+    acc.type if (acc := torch.accelerator.current_accelerator(True)) else "cpu"
+)
+backend = torch.distributed.get_default_backend_for_device(device_type)
 
 if TEST_WITH_DEV_DBG_ASAN:
     print(
@@ -112,7 +116,7 @@ class TestShardedEmbedding(ShardedTensorTestBase):
 
         self.assertEqual(local_output, sharded_output)
 
-    @with_comms(init_rpc=False)
+    @with_comms(init_rpc=False, backend=backend)
     @skip_if_lt_x_gpu(TEST_GPU_NUM)
     @requires_accelerator_dist_backend(["nccl", "xccl"])
     def test_sharded_embedding_colwise(self):
@@ -148,7 +152,7 @@ class TestShardedEmbedding(ShardedTensorTestBase):
             )
             self._run_sharded_embedding(spec, [30], 15, 14, max_norm=2.0)
 
-    @with_comms(init_rpc=False)
+    @with_comms(init_rpc=False, backend=backend)
     @skip_if_lt_x_gpu(TEST_GPU_NUM)
     @requires_accelerator_dist_backend(["nccl", "xccl"])
     def test_sharded_embedding_rowwise(self):

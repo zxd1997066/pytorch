@@ -17,6 +17,7 @@ from torch.testing._internal.distributed._shard.sharded_tensor import (
 device_type = (
     acc.type if (acc := torch.accelerator.current_accelerator(True)) else "cpu"
 )
+backend = torch.distributed.get_default_backend_for_device(device_type)
 
 class MyShardedModel(torch.nn.Module):
     def __init__(self, spec=None, group=None):
@@ -82,7 +83,7 @@ class MyShardedLinear(torch.nn.Module):
 
 
 class TestShardedOptimizer(ShardedTensorTestBase):
-    @with_comms(init_rpc=False)
+    @with_comms(init_rpc=False, backend=backend)
     @skip_if_lt_x_gpu(4)
     @requires_accelerator_dist_backend(["nccl", "xccl"])
     def test_sharded_optim(self):
@@ -141,7 +142,7 @@ class TestShardedOptimizer(ShardedTensorTestBase):
                 self.assertNotEqual(val, new_val)
                 self.assertEqual(new_val, local_model.param)
 
-    @with_comms(init_rpc=False)
+    @with_comms(init_rpc=False, backend=backend)
     @skip_if_lt_x_gpu(4)
     @requires_accelerator_dist_backend(["nccl", "xccl"])
     def test_named_params_with_sharded_tensor(self):

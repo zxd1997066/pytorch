@@ -15,6 +15,7 @@ from torch.testing._internal.distributed._shard.sharded_tensor import (
 device_type = (
     acc.type if (acc := torch.accelerator.current_accelerator(True)) else "cpu"
 )
+backend = torch.distributed.get_default_backend_for_device(device_type)
 
 if TEST_WITH_DEV_DBG_ASAN:
     print(
@@ -27,7 +28,7 @@ if TEST_WITH_DEV_DBG_ASAN:
 class TestShardedTensorNNInit(ShardedTensorTestBase):
     """Testing torch.nn.init functions for ShardedTensor"""
 
-    @with_comms
+    @with_comms(backend=backend)
     @skip_if_lt_x_gpu(4)
     @requires_accelerator_dist_backend(["nccl", "xccl"])
     def test_init_sharded_tensor_with_uniform(self):
@@ -60,7 +61,7 @@ class TestShardedTensorNNInit(ShardedTensorTestBase):
         torch.nn.init.uniform_(local_tensor_clone, a=a, b=b)
         self.assertEqual(local_tensor_clone, st.local_shards()[0].tensor)
 
-    @with_comms
+    @with_comms(backend=backend)
     @skip_if_lt_x_gpu(4)
     @requires_accelerator_dist_backend(["nccl", "xccl"])
     def test_init_sharded_tensor_with_normal(self):
@@ -93,7 +94,7 @@ class TestShardedTensorNNInit(ShardedTensorTestBase):
         torch.nn.init.normal_(local_tensor_clone, mean=mean, std=std)
         self.assertEqual(local_tensor_clone, st.local_shards()[0].tensor)
 
-    @with_comms
+    @with_comms(backend=backend)
     @skip_if_lt_x_gpu(4)
     @requires_accelerator_dist_backend(["nccl", "xccl"])
     def test_init_sharded_tensor_with_kaiming_uniform(self):

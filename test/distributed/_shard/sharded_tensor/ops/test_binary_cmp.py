@@ -17,6 +17,7 @@ from torch.testing._internal.distributed._shard.sharded_tensor import (
 device_type = (
     acc.type if (acc := torch.accelerator.current_accelerator(True)) else "cpu"
 )
+backend = torch.distributed.get_default_backend_for_device(device_type)
 
 if TEST_WITH_DEV_DBG_ASAN:
     print(
@@ -120,13 +121,13 @@ class TestShardedTensorBinaryOps(ShardedTensorTestBase):
         ):
             cmp_op(st1, st2)
 
-    @with_comms
+    @with_comms(backend=backend)
     @skip_if_lt_x_gpu(4)
     @requires_accelerator_dist_backend(["nccl", "xccl"])
     def test_torch_equal_tensor_specs(self):
         self._test_common_failures(torch.equal)
 
-    @with_comms
+    @with_comms(backend=backend)
     @skip_if_lt_x_gpu(4)
     @requires_accelerator_dist_backend(["nccl", "xccl"])
     def test_torch_equal(self):
@@ -136,13 +137,13 @@ class TestShardedTensorBinaryOps(ShardedTensorTestBase):
         st1, st2 = self.get_random_tensors(spec, spec, 10, 10)
         self.assertTrue(torch.equal(st1, st2))
 
-    @with_comms
+    @with_comms(backend=backend)
     @skip_if_lt_x_gpu(4)
     @requires_accelerator_dist_backend(["nccl", "xccl"])
     def test_torch_allclose_tensor_specs(self):
         self._test_common_failures(torch.allclose)
 
-    @with_comms
+    @with_comms(backend=backend)
     @skip_if_lt_x_gpu(4)
     @requires_accelerator_dist_backend(["nccl", "xccl"])
     def test_torch_allclose(self):
