@@ -96,6 +96,7 @@ from torch.testing._internal.common_utils import (
     TemporaryFileName,
     TEST_XPU,
     TEST_CUDA,
+    skipIfXpu,
 )
 from torch.utils._python_dispatch import TorchDispatchMode
 from torch.utils.data.distributed import DistributedSampler
@@ -5521,6 +5522,7 @@ class DistributedTest:
 
             self.assertEqual(res[0], expected)
 
+        @skipIfXpu(msg="test_DistributedDataParallel fails with static_graph=True, issue #112277")
         @skip_but_pass_in_sandcastle_if(
             BACKEND not in DistTestCases.backend_feature["ddp"],
             f"The {BACKEND} backend does not support DistributedDataParallel",
