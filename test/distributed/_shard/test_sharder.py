@@ -11,7 +11,7 @@ from torch.distributed._shard.sharded_tensor import ShardedTensor
 from torch.distributed._shard.sharder import Sharder
 from torch.distributed._shard.sharding_plan import ShardingPlan
 from torch.distributed._shard.sharding_spec import ChunkShardingSpec
-from torch.testing._internal.common_distributed import requires_nccl_or, skip_if_lt_x_gpu
+from torch.testing._internal.common_distributed import requires_accelerator_dist_backend, skip_if_lt_x_gpu
 from torch.testing._internal.common_utils import run_tests, TEST_WITH_DEV_DBG_ASAN
 from torch.testing._internal.distributed._shard.sharded_tensor import (
     ShardedTensorTestBase,
@@ -104,7 +104,7 @@ class CustomSharder(Sharder):
 class TestCustomSharder(ShardedTensorTestBase):
     @with_comms(init_rpc=False, backend=BACKEND)
     @skip_if_lt_x_gpu(TEST_GPU_NUM)
-    @requires_nccl_or(['xccl',])
+    @requires_accelerator_dist_backend(["nccl", "xccl"])
     def test_custom_sharder(self):
         class MyModule(nn.Module):
             def __init__(self) -> None:
@@ -154,7 +154,7 @@ class TestCustomSharder(ShardedTensorTestBase):
 
     @with_comms(init_rpc=False, backend=BACKEND)
     @skip_if_lt_x_gpu(TEST_GPU_NUM)
-    @requires_nccl_or(['xccl',])
+    @requires_accelerator_dist_backend(["nccl", "xccl"])
     def test_custom_sharder_errors(self):
         custom_sharder = CustomSharder(
             devices=[f"rank:{i}/{device_type}:{i}" for i in range(TEST_GPU_NUM)],

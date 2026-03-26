@@ -8,7 +8,7 @@ from torch.distributed._shard import shard_module
 from torch.distributed._shard.sharded_tensor import ShardedTensor
 from torch.distributed._shard.sharding_plan import ShardingPlan, ShardingPlanner
 from torch.distributed._shard.sharding_spec import ChunkShardingSpec
-from torch.testing._internal.common_distributed import requires_nccl_or, skip_if_lt_x_gpu
+from torch.testing._internal.common_distributed import requires_accelerator_dist_backend, skip_if_lt_x_gpu
 from torch.testing._internal.common_utils import run_tests, TEST_WITH_DEV_DBG_ASAN
 from torch.testing._internal.distributed._shard.sharded_tensor import (
     ShardedTensorTestBase,
@@ -56,7 +56,7 @@ class ChunkAllShardingPlanner(ShardingPlanner):
 class TestShardingPlan(ShardedTensorTestBase):
     @with_comms(init_rpc=False, backend=BACKEND)
     @skip_if_lt_x_gpu(TEST_GPU_NUM)
-    @requires_nccl_or(["xccl"])
+    @requires_accelerator_dist_backend(["nccl", "xccl"])
     def test_sharding_plan_errors(self):
         rowwise_sharding_spec = generate_chunk_sharding_specs_for_test(1)[0]
         sharding_plan_wrong_plan = ShardingPlan(
@@ -107,7 +107,7 @@ class TestShardingPlan(ShardedTensorTestBase):
 
     @with_comms(init_rpc=False, backend=BACKEND)
     @skip_if_lt_x_gpu(TEST_GPU_NUM)
-    @requires_nccl_or(["xccl"])
+    @requires_accelerator_dist_backend(["nccl", "xccl"])
     def test_custom_sharding_planner(self):
         megatron_lm = SimpleMegatronLM([[17, 12], [12, 29]], rank=self.rank).to(torch.device(self.rank))
         planner = ChunkAllShardingPlanner(device_count=TEST_GPU_NUM)
@@ -123,7 +123,7 @@ class TestShardingPlan(ShardedTensorTestBase):
 
     @with_comms(init_rpc=False, backend=BACKEND)
     @skip_if_lt_x_gpu(TEST_GPU_NUM)
-    @requires_nccl_or(["xccl"])
+    @requires_accelerator_dist_backend(["nccl", "xccl"])
     def test_shard_module_sub_process_group(self):
         megatron_lm = SimpleMegatronLM([[17, 12], [12, 29]], rank=self.rank)
         colwise_sharding_spec = ChunkShardingSpec(

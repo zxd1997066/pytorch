@@ -6,7 +6,7 @@ from itertools import product
 import torch
 from torch.distributed._shard import _shard_tensor, sharded_tensor
 from torch.distributed._shard.sharding_spec import EnumerableShardingSpec, ShardMetadata
-from torch.testing._internal.common_distributed import requires_nccl_or, skip_if_lt_x_gpu
+from torch.testing._internal.common_distributed import requires_accelerator_dist_backend, skip_if_lt_x_gpu
 from torch.testing._internal.common_utils import run_tests, TEST_WITH_DEV_DBG_ASAN
 from torch.testing._internal.distributed._shard.sharded_tensor import (
     ShardedTensorTestBase,
@@ -49,7 +49,7 @@ class TestReshard(ShardedTensorTestBase):
 
     @with_comms(init_rpc=False, backend=BACKEND)
     @skip_if_lt_x_gpu(4)
-    @requires_nccl_or(["xccl"])
+    @requires_accelerator_dist_backend(["nccl", "xccl"])
     def test_sharded_tensor_reshard(self):
         dims = [0, 1]
         for sharding_dim, reshard_dim in product(dims, dims):
@@ -64,7 +64,7 @@ class TestReshard(ShardedTensorTestBase):
 
     @with_comms(init_rpc=False, backend=BACKEND)
     @skip_if_lt_x_gpu(4)
-    @requires_nccl_or(["xccl"])
+    @requires_accelerator_dist_backend(["nccl", "xccl"])
     def test_sharded_tensor_reshard_errors(self):
         specs = _chunk_sharding_specs_list_for_test([0, 1], seed=6)
         spec, reshard_spec = specs[0], specs[1]
