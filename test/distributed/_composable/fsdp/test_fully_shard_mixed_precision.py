@@ -16,7 +16,6 @@ from torch.distributed.fsdp._fully_shard._fsdp_collectives import (
 from torch.distributed.tensor import Shard
 from torch.testing._internal.common_distributed import (
     requires_nccl_version,
-    requires_nccl_version_or,
     SaveForwardInputsModel,
     skip_if_lt_x_gpu,
 )
@@ -38,7 +37,6 @@ from torch.testing._internal.common_utils import (
 
 device_type = torch.device(get_devtype())
 
-device_type = torch.accelerator.current_accelerator().type
 
 class TestFullyShardMixedPrecisionTraining(FSDPTest):
     @property
@@ -97,7 +95,7 @@ class TestFullyShardMixedPrecisionTraining(FSDPTest):
 
     @skipIfRocmVersionLessThan((7, 0))
     @skip_if_lt_x_gpu(2)
-    @requires_nccl_version_or((2, 10), "Need NCCL 2.10+ for bf16 collectives", backends=['xccl',])
+    @requires_nccl_version((2, 10), "Need NCCL 2.10+ for bf16 collectives")
     def test_compute_dtype(self):
         use_shard_placement_fn_vals = (
             self._get_use_shard_placement_fn_vals_for_bf16_reduce()
@@ -137,7 +135,7 @@ class TestFullyShardMixedPrecisionTraining(FSDPTest):
         )
 
         torch.manual_seed(42 + self.rank + 1)
-        inp = torch.randn((4, 16), device=device_type, dtype=param_dtype)
+        inp = torch.randn((4, 16), device=device_type.type, dtype=param_dtype)
         for iter_idx in range(10):
             optim.zero_grad(set_to_none=(iter_idx % 2 == 0))
             fsdp_loss = model(inp).sum()
@@ -177,7 +175,7 @@ class TestFullyShardMixedPrecisionTraining(FSDPTest):
 
     @skipIfRocmVersionLessThan((7, 0))
     @skip_if_lt_x_gpu(2)
-    @requires_nccl_version_or((2, 10), "Need NCCL 2.10+ for bf16 collectives", backends=['xccl',])
+    @requires_nccl_version((2, 10), "Need NCCL 2.10+ for bf16 collectives")
     def test_reduce_dtype(self):
         self.run_subtests(
             {
@@ -223,7 +221,7 @@ class TestFullyShardMixedPrecisionTraining(FSDPTest):
             reduce_scatter_with_assert, self, orig_reduce_scatter, assert_fn
         )
         torch.manual_seed(42 + self.rank + 1)
-        inp = torch.randn((4, 16), device=device_type, dtype=param_dtype)
+        inp = torch.randn((4, 16), device=device_type.type, dtype=param_dtype)
         for iter_idx in range(10):
             optim.zero_grad(set_to_none=(iter_idx % 2 == 0))
             fsdp_loss = model(inp).sum()
@@ -272,7 +270,7 @@ class TestFullyShardMixedPrecisionTraining(FSDPTest):
             reduce_scatter_with_assert, self, orig_reduce_scatter, assert_fn
         )
         torch.manual_seed(42 + self.rank + 1)
-        inp = torch.randn((4, 16), device=device_type, dtype=param_dtype)
+        inp = torch.randn((4, 16), device=device_type.type, dtype=param_dtype)
         for iter_idx in range(10):
             optim.zero_grad(set_to_none=(iter_idx % 2 == 0))
             fsdp_loss = model(inp).sum()
@@ -528,7 +526,7 @@ class TestFullyShardMixedPrecisionTraining(FSDPTest):
 
         torch.manual_seed(1)  # same on all ranks
         for iter_idx in range(10):
-            global_inp = torch.rand((global_batch_size, dim), device=device_type)
+            global_inp = torch.rand((global_batch_size, dim), device=device_type.type)
             local_inp = global_inp[
                 self.rank * local_batch_size : (self.rank + 1) * local_batch_size
             ].detach()
@@ -665,13 +663,13 @@ class TestFullyShardMixedPrecisionCasts(FSDPTestMultiThread):
             def forward(self, x: torch.Tensor) -> torch.Tensor:
                 self.forward_inputs["model_input_x"] = x
                 y = torch.ones(
-                    2, 100, device=device_type, dtype=torch.float32
+                    2, 100, device=device_type.type, dtype=torch.float32
                 )  # external input
                 return self.l2(self.l1(x), y)
 
         forward_inputs: dict[str, torch.Tensor] = {}
         model = ToyModel(forward_inputs).to(device_type)
-        x = torch.zeros(2, 100, device=device_type, dtype=torch.float32)
+        x = torch.zeros(2, 100, device=device_type.type, dtype=torch.float32)
         fully_shard(
             model.l2,
             mp_policy=MixedPrecisionPolicy(
@@ -691,7 +689,7 @@ class TestFullyShardMixedPrecisionCasts(FSDPTestMultiThread):
         )
 
     @skip_if_lt_x_gpu(1)
-    @requires_nccl_version_or((2, 10), "Need NCCL 2.10+ for bf16 collectives", backends=['xccl',])
+    @requires_nccl_version((2, 10), "Need NCCL 2.10+ for bf16 collectives")
     def test_norm_modules_bf16(self):
         mp_policy = MixedPrecisionPolicy(param_dtype=torch.bfloat16)
         self._test_norm_modules(mp_policy)
@@ -758,7 +756,7 @@ class TestFullyShardMixedPrecisionCasts(FSDPTestMultiThread):
         model = nn.Sequential(
             nn.Linear(32, 32, dtype=init_dtype),
             nn.Linear(32, 32, dtype=init_dtype),
-        ).to(device_type)
+        ).to(device_type.type)
         mp_policy = MixedPrecisionPolicy(
             param_dtype=torch.bfloat16, reduce_dtype=torch.bfloat16
         )
@@ -780,7 +778,7 @@ class TestFullyShardMixedPrecisionCasts(FSDPTestMultiThread):
             reduce_scatter_with_assert, self, orig_reduce_scatter, assert_fn
         )
         with patch_reduce_scatter(reduce_scatter):
-            inp = torch.randn((4, 32), device=device_type)
+            inp = torch.randn((4, 32), device=device_type.type)
             loss = model(inp).sum()
             loss.backward()
 
