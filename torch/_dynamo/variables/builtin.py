@@ -92,6 +92,7 @@ from .constant import (
     CONSTANT_VARIABLE_NONE,
     ConstantVariable,
     EnumVariable,
+    FakeIdVariable,
 )
 from .dicts import (
     ConstDictVariable,
@@ -849,43 +850,15 @@ class BuiltinVariable(VariableTracker):
                     left: VariableTracker,
                     right: VariableTracker,
                 ) -> VariableTracker | None:
-                    # VT identity → Python identity
-                    if left is right:
-                        return VariableTracker.build(tx, op.__name__ == "is_")
+                    from .object_protocol import vt_identity_compare
 
-                    # Compare underlying Python objects via hook
-                    left_val = left.get_real_python_backed_value()
-                    right_val = right.get_real_python_backed_value()
-
-                    left_known = left_val is not NO_SUCH_SUBOBJ
-                    right_known = right_val is not NO_SUCH_SUBOBJ
-
-                    if left_known and right_known:
-                        result = left_val is right_val
-                        return VariableTracker.build(
-                            tx, result if op.__name__ == "is_" else not result
-                        )
-
-                    # One side has a concrete value, the other doesn't — they
-                    # can't be identical (if they were the same object, both
-                    # sides would resolve).
-                    if left_known != right_known:
-                        return VariableTracker.build(tx, op.__name__ != "is_")
-
-                    # Mutable containers created during tracing: VT identity
-                    # = Python identity. Already False from `left is right`.
-                    if isinstance(left, (ConstDictVariable, ListVariable)):
-                        return VariableTracker.build(tx, op.__name__ != "is_")
-
-                    # Different exception types are never identical
-                    if (
-                        istype(left, variables.ExceptionVariable)
-                        and istype(right, variables.ExceptionVariable)
-                        and left.exc_type is not right.exc_type
-                    ):
-                        return VariableTracker.build(tx, op.__name__ != "is_")
-
-                    return None
+                    result = vt_identity_compare(left, right)
+                    if result is None:
+                        return None
+                    is_same = result.as_python_constant()
+                    return VariableTracker.build(
+                        tx, is_same if op.__name__ == "is_" else not is_same
+                    )
 
                 result.append(((VariableTracker, VariableTracker), handle_is))  # type: ignore[arg-type]
 
@@ -3026,26 +2999,29 @@ class BuiltinVariable(VariableTracker):
             nn_mod_variable = args[0]
             mod = tx.output.get_submodule(nn_mod_variable.module_key)
             return VariableTracker.build(tx, id(mod))
-        elif len(args) == 1 and isinstance(
-            args[0],
-            (variables.UserDefinedClassVariable, variables.UserDefinedObjectVariable),
-        ):
-            if args[0].source:
-                if isinstance(args[0], variables.UserDefinedClassVariable):
-                    install_guard(args[0].source.make_guard(GuardBuilder.CLASS_MATCH))
-                else:
-                    install_guard(args[0].source.make_guard(GuardBuilder.ID_MATCH))
-            constant_result = id(args[0].value)
-            return VariableTracker.build(tx, constant_result)
         elif len(args) == 1 and args[0].is_tensor():
             tensor_variable = cast(TensorVariable, args[0])
             return tensor_variable.call_id(tx)
-        elif istype(args[0], variables.UserFunctionVariable):
-            return VariableTracker.build(tx, id(args[0].fn))
-        elif istype(args[0], variables.SkipFunctionVariable):
-            return VariableTracker.build(tx, id(args[0].value))
         elif istype(args[0], variables.FunctoolsPartialVariable):
             return VariableTracker.build(tx, id(args[0].fake_value))
+        elif len(args) == 1:
+            arg = args[0]
+            if isinstance(
+                arg,
+                (
+                    variables.UserDefinedClassVariable,
+                    variables.UserDefinedObjectVariable,
+                ),
+            ):
+                if arg.source:
+                    if isinstance(arg, variables.UserDefinedClassVariable):
+                        install_guard(arg.source.make_guard(GuardBuilder.CLASS_MATCH))
+                    else:
+                        install_guard(arg.source.make_guard(GuardBuilder.ID_MATCH))
+            real_val = arg.get_real_python_backed_value()
+            if real_val is not NO_SUCH_SUBOBJ:
+                return VariableTracker.build(tx, id(real_val))
+            return FakeIdVariable(id(arg))
         else:
             unimplemented(
                 gb_type="id() with unsupported args",

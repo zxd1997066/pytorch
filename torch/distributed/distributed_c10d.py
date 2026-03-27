@@ -5467,10 +5467,18 @@ def split_group(
         )
 
     parent_group_rank = parent_global_to_group_ranks[global_rank]
-    parent_backend = parent_pg._get_backend(torch.device(device_type))
+
+    if torch.accelerator.is_available():
+        parent_backend = parent_pg._get_backend(
+            torch.accelerator.current_accelerator()  # pyrefly: ignore[bad-argument-type]
+        )
+    else:
+        raise RuntimeError(
+            "No backend for the parent process group or its backend does not support splitting"
+        )
 
     # if the parent backend does not support splitting, raise error
-    # currently this API only support NCCL backend
+    # currently this API only support NCCL and XCCL backend
     if (
         not parent_backend or not parent_backend.supports_splitting
     ) and not _use_torchcomms_enabled():
