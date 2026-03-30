@@ -1832,7 +1832,7 @@ class ProcessGroupXCCLGroupTest(MultiProcessTestCase):
         return [self.world_size - 1]  # Exclude last rank by default
 
     # @requires_xccl_shrink()
-    @requires_world_size(3)
+    # @requires_world_size(3)
     def test_shrink_group_vs_abort_reinit_performance(self):
         """Compare performance of shrink_group vs traditional abort+reinit (simplified for reliability)."""
         log_test_info(self.rank, "=== TEST 1: abort+reinit ===")
