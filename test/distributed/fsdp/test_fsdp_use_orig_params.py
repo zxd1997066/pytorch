@@ -1397,7 +1397,7 @@ class TestFSDPUseOrigParamsPrefetchWriteback(FSDPTest):
                 out = self.linear(x)
                 compute_done.fill_(0)
                 # Stall compute stream so prefetch writeback overlaps
-                torch.cuda._sleep(int(1e8))
+                # torch.cuda._sleep(int(1e8))
                 compute_done.fill_(1)
                 return out
 
@@ -1439,7 +1439,7 @@ class TestFSDPUseOrigParamsPrefetchWriteback(FSDPTest):
         finally:
             FlatParamHandle.pre_unshard = orig_pre_unshard
 
-        torch.cuda.synchronize()
+        torch.accelerator.synchronize()
         for i, val in enumerate(writeback_reads):
             self.assertEqual(
                 val.item(),
