@@ -571,7 +571,7 @@ class TestFakeDistributedSingleProc(torch._dynamo.test_case.TestCase):
 
 # These tests aren't really distributed, but need multiple GPUs to run
 class TestMultiGPU(torch._inductor.test_case.TestCase):
-    @unittest.skipIf(not torch.accelerator.is_available(), "requires cuda or xpu")
+    @unittest.skipIf(not torch.cuda.is_available(), "requires cuda or xpu")
     @skip_if_lt_x_gpu(2)
     def test_cuda__exchange_device(self):
         acc = torch.accelerator.current_accelerator()
@@ -683,7 +683,7 @@ class TestMultiGPU(torch._inductor.test_case.TestCase):
         s_exp = fn(*inp)
         self.assertEqual(s_act, s_exp)
 
-    @unittest.skipIf(not torch.cuda.is_available(), "requires cuda")
+    @unittest.skipIf(not torch.accelerator.is_available(), "requires accelerator")
     @skip_if_lt_x_gpu(2)
     def test_gpu_current_device(self):
         def fn(x):
@@ -706,7 +706,7 @@ class TestMultiGPU(torch._inductor.test_case.TestCase):
                 self.assertEqual(opt_fn(x), fn(x))
                 self.assertEqual(counter.frame_count, 2)
 
-    @unittest.skipIf(not torch.cuda.is_available(), "requires cuda")
+    @unittest.skipIf(not torch.accelerator.is_available(), "requires accelerator")
     @skip_if_lt_x_gpu(2)
     def test_symint_as_device_kwarg_multi_gpu(self):
         def fn(rank):
