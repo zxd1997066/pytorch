@@ -87,7 +87,7 @@ class TestShardingSpec(TestCase):
         with self.assertRaisesRegex(ValueError, "Could not parse remote_device"):
             ChunkShardingSpec(0, ["random:0", f"{device_type}:1"])
         with self.assertRaisesRegex(ValueError, "Could not parse remote_device"):
-            ChunkShardingSpec(0, [f"rank:0/{device_type}:foo", f"{device_type}:1"])
+            ChunkShardingSpec(0, [f"{device_type}:foo", f"{device_type}:1"])
         with self.assertRaisesRegex(ValueError, "Could not parse remote_device"):
             ChunkShardingSpec(0, ["rank:foo", f"{device_type}:1"])
         with self.assertRaisesRegex(RuntimeError, "Expected one of"):
