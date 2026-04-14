@@ -47,7 +47,7 @@ import torch.testing._internal.common_utils as common
 from torch import nn
 from torch._C._distributed_c10d import ErrorType, OpType, WorkResult
 from torch.nn.parallel import DistributedDataParallel
-from torch.testing._internal.common_cuda import _get_torch_rocm_version, TEST_MULTIGPU
+from torch.testing._internal.common_utils import TEST_MULTIGPU 
 from torch.testing._internal.common_distributed import (
     get_required_world_size,
     get_timeout,
@@ -5728,7 +5728,7 @@ class XCCLTraceTest(XCCLTraceTestBase):
                     # Therefore, the state can either be scheduled or started before test dumps the trace.
                     if (
                         torch.version.hip
-                        and _get_torch_rocm_version() >= (6, 4)
+                        # and _get_torch_rocm_version() >= (6, 4)
                         and timing_enabled
                     ):
                         assert t[-1]["state"] in ("scheduled", "started")
