@@ -64,6 +64,7 @@ from .variables import (
     FunctorchHigherOrderVariable,
     InspectSignatureVariable,
     IterBuiltinVariable,
+    ListBuiltinVariable,
     LocalGeneratorFunctionVariable,
     LocalGeneratorObjectVariable,
     NestedUserFunctionVariable,
@@ -3836,6 +3837,7 @@ we don't want to inline the lower level function call (e.g, f3) by default.
 _force_inline_flag = False
 
 
+# pyrefly: ignore [deprecated]
 @contextlib.contextmanager
 def _force_inline() -> Iterator[None]:
     """
@@ -3999,7 +4001,11 @@ def is_torch(filename: str) -> bool:
 Main entry point for looking up the trace rule (the Dynamo variable) for a given callable object.
 """
 
-BUILTIN_CALLABLES = {dict: DictBuiltinVariable, iter: IterBuiltinVariable}
+BUILTIN_CALLABLES = {
+    dict: DictBuiltinVariable,
+    iter: IterBuiltinVariable,
+    list: ListBuiltinVariable,
+}
 
 
 def lookup_callable(obj: Callable[..., Any]) -> type[VariableTracker] | None:

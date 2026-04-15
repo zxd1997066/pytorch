@@ -4205,6 +4205,9 @@ class XCCLTraceTest(XCCLTraceTestBase):
                 else:
                     self.assertEqual(t[-1]["profiling_name"], "xccl:all_reduce")
                     self.assertEqual(t[-1]["collective_seq_id"], 2)
+                    self.assertEqual(
+                        t[-1]["state"], self.started_or_scheduled(timing_enabled)
+                    )
 
             if self.rank == 0:
                 pg.allreduce(a).wait()

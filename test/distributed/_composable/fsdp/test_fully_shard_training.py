@@ -2010,6 +2010,7 @@ class TestFullyShardShareCommContext(FSDPTest):
             all_gather_stream: torch.Stream,
             device: torch.device,
             all_gather_comm: AllGather,
+            module_fqn: str | None = None,
         ):
             nonlocal all_gather_streams
             all_gather_streams.add(all_gather_stream)
@@ -2021,6 +2022,7 @@ class TestFullyShardShareCommContext(FSDPTest):
                 all_gather_stream,
                 device,
                 all_gather_comm,
+                module_fqn,
             )
 
         orig_foreach_reduce = foreach_reduce
@@ -2042,6 +2044,7 @@ class TestFullyShardShareCommContext(FSDPTest):
             partial_reduce_output: torch.Tensor | None,  # only used for HSDP
             all_reduce_hook: Callable[[torch.Tensor], None] | None,
             force_sum_reduction_for_comms: bool = False,
+            module_fqn: str | None = None,
         ):
             nonlocal reduce_scatter_streams
             reduce_scatter_streams.add(reduce_scatter_stream)
@@ -2061,6 +2064,7 @@ class TestFullyShardShareCommContext(FSDPTest):
                 partial_reduce_output,
                 all_reduce_hook,
                 force_sum_reduction_for_comms,
+                module_fqn,
             )
 
         with (
