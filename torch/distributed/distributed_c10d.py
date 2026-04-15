@@ -1480,7 +1480,7 @@ def _get_process_group_uid(pg: ProcessGroup) -> int:
         backend = pg._get_backend(torch.device(device_type))
     except RuntimeError:
         pass
-    if is_nccl_available() and isinstance(backend, ProcessGroupNCCL):
+    if hasattr(backend, "uid"):
         return backend.uid
     return -1
 
