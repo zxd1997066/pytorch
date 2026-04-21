@@ -1717,7 +1717,7 @@ class TestCoalescedCollectiveOverlap(InductorTestCase):
 
         store = FakeStore()
         dist.init_process_group(backend="fake", rank=0, world_size=8, store=store)
-        cls.device = "cuda"
+        cls.device = device_type
 
     @classmethod
     def tearDownClass(cls):
