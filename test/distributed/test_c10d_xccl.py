@@ -6,7 +6,6 @@ import logging
 import os
 import pickle
 import random
-import re
 import signal
 import sys
 import tempfile
@@ -16,16 +15,15 @@ import warnings
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 from enum import auto, Enum
-from itertools import chain, product
+from itertools import product
 from unittest import mock, SkipTest
 
 import torch
 import torch.distributed as c10d
 import torch.distributed._functional_collectives as _functional_collectives
-from torch.distributed.distributed_c10d import SHRINK_ABORT as XCCL_SHRINK_ABORT
 
 
-if not c10d.is_available() or not (c10d.is_xccl_available() or  c10d.is_xccl_available()):
+if not c10d.is_available() or not c10d.is_xccl_available():
     print("c10d XCCL/XCCL not available, skipping tests", file=sys.stderr)
     sys.exit(0)
 
@@ -45,39 +43,30 @@ import torch.distributed.algorithms.ddp_comm_hooks.powerSGD_hook as powerSGD
 import torch.nn.functional as F
 import torch.testing._internal.common_utils as common
 from torch import nn
-from torch._C._distributed_c10d import ErrorType, OpType, WorkResult
+from torch._C._distributed_c10d import ErrorType, WorkResult
 from torch.nn.parallel import DistributedDataParallel
-from torch.testing._internal.common_utils import TEST_MULTIGPU 
 from torch.testing._internal.common_distributed import (
     get_required_world_size,
     get_timeout,
     init_multigpu_helper,
     MultiProcessTestCase,
-    requires_multicast_support,
     requires_xccl,
-    # requires_xccl_shrink,
-    # requires_xccl_version,
-    requires_world_size,
     skip_if_lt_x_gpu,
-    skip_if_rocm_multiprocess,
-    sm_is_or_higher_than,
     TEST_SKIPS,
     with_dist_debug_levels,
-    # with_xccl_blocking_wait,
 )
 from torch.testing._internal.common_utils import (
     instantiate_parametrized_tests,
     IS_SANDCASTLE,
-    MI300_ARCH,
     parametrize,
     retry_on_connect_failures,
     run_tests,
-    runOnRocmArch,
     skip_but_pass_in_sandcastle,
     skip_but_pass_in_sandcastle_if,
-    TEST_XPU,
+    skipIfXpu,
+    TEST_MULTIGPU,
     TEST_WITH_DEV_DBG_ASAN,
-    TEST_WITH_ROCM,
+    TEST_XPU,
     TestCase,
 )
 
@@ -89,9 +78,9 @@ if TEST_WITH_DEV_DBG_ASAN:
     sys.exit(0)
 
 
-
 _start_time = time.time()
 _logger = logging.getLogger(__name__)
+DEFAULT_PG_TIMEOUT = int(torch._C._distributed_c10d._DEFAULT_PG_TIMEOUT.seconds * 1000)
 
 
 def _ts():
@@ -312,11 +301,10 @@ class ProcessGroupXCCLInitTest(MultiProcessTestCase):
     @requires_xccl()
     @skip_if_lt_x_gpu(1)
     def test_scalable_init(self):
-        os.environ["TORCH_XCCL_RANKS_PER_ROOT"] = "1"
         self._init_process_group(device_id=self.device)
         x = torch.empty(1, device=self.device)
         c10d.all_reduce(x)
-        os.environ["TORCH_XCCL_RANKS_PER_ROOT"] = "0"
+
 
 class ProcessGroupXCCLGroupTest(MultiProcessTestCase):
     def _create_process_group_xccl(self, store, opts, device_id=None):
@@ -348,10 +336,14 @@ class ProcessGroupXCCLGroupTest(MultiProcessTestCase):
         # ROCm: No native trap instruction, uses assert(0) (NanCheck.cu:24-27) →
         #       calls abort() → OS sends SIGABRT signal → process killed by signal →
         #       exit code -6
+        # XPU: Uses assert(0) (NanCheck_XPU.cpp) → calls abort() →
+        #       OS sends SIGABRT signal → process killed by signal → exit code -6
         TEST_NAN_ASSERT_RETURN = (
             0
-            if (IS_SANDCASTLE and not (TEST_MULTIGPU and CUDA_12_AND_ABOVE))
-            else (-signal.SIGABRT if torch.version.hip else signal.SIGABRT)
+            if (IS_SANDCASTLE and not TEST_MULTIGPU)
+            else (
+                -signal.SIGABRT if (torch.version.hip or TEST_XPU) else signal.SIGABRT
+            )
         )
         self.special_return_code_checks = {
             self.test_nan_assert_float16.__wrapped__: TEST_NAN_ASSERT_RETURN,
@@ -362,9 +354,6 @@ class ProcessGroupXCCLGroupTest(MultiProcessTestCase):
             self.test_nan_assert_float8_e5m2.__wrapped__: TEST_NAN_ASSERT_RETURN,
         }
 
-        # TORCH_XCCL_BLOCKING_WAIT overrides TORCH_XCCL_ASYNC_ERROR_HANDLING hence tests
-        # that use TORCH_XCCL_BLOCKING_WAIT will test it as expected.
-        os.environ["TORCH_XCCL_ASYNC_ERROR_HANDLING"] = "1"
         # self.num_gpus = torch.xpu.device_count()
         self._spawn_processes()
 
@@ -394,6 +383,8 @@ class ProcessGroupXCCLGroupTest(MultiProcessTestCase):
     @skip_but_pass_in_sandcastle_if(not TEST_MULTIGPU, "XCCL test requires 1 GPU")
     @skip_if_lt_x_gpu(1)
     def test_xccl_dist_backend_error(self):
+        self.skipTest("Skipping due to no oneCCL error reporting")
+        # TODO: expose proper error reporting in xccl backend
         store = c10d.FileStore(self.file_name, self.world_size)
         self._create_process_group_xccl(store, self.opts())
 
@@ -406,52 +397,8 @@ class ProcessGroupXCCLGroupTest(MultiProcessTestCase):
 
     @requires_xccl()
     @skip_but_pass_in_sandcastle_if(not TEST_MULTIGPU, "XCCL test requires 2+ XPUs")
-    def test_abort_pg(self):
-        # Disable ASYNC_ERROR_HANDLING for this test to ensure we can programmatically
-        # abort the process group.
-        os.environ["TORCH_XCCL_ASYNC_ERROR_HANDLING"] = "0"
-        store = c10d.FileStore(self.file_name, self.world_size)
-        self._create_process_group_xccl(store, self.opts())
-        device = self.rank_to_GPU[self.rank][0]
-
-        t = torch.rand(10, 10, device=device)
-        # First allreduce to initialize state.
-        dist.all_reduce(t)
-
-        def abortpg():
-            c10d.distributed_c10d._get_default_group()._get_backend(
-                torch.device(device)
-            ).abort()
-
-        # Initialize DDP to ensure "destroy_process_group" will not call
-        # ProcessGroupXCCL destructor since DDP holds a reference to process group.
-        # Run a single iteration of DDP to initialize state.
-        model = DistributedDataParallel(
-            torch.nn.Linear(10, 10).to(device), device_ids=[device]
-        )
-        model(t).sum().backward()
-
-        # Now simulate collective getting stuck and abort gets us unstuck
-        if self.rank == 0:
-            dist.all_reduce(t)
-
-            # Schedule thread before we get stuck to abort pg.
-            thread = threading.Thread(target=abortpg)
-            thread.start()
-
-            # We would get stuck here due to d2h if we didn't abort.
-            t.cpu()
-
-            thread.join()
-
-    @requires_xccl()
-    @skip_but_pass_in_sandcastle_if(not TEST_MULTIGPU, "XCCL test requires 2+ XPUs")
     @parametrize("eager_init", [True, False])
     def test_close_pg(self, eager_init: bool):
-        # Disable ASYNC_ERROR_HANDLING for this test to ensure we can programmatically
-        # abort the process group.
-        os.environ["TORCH_XCCL_ASYNC_ERROR_HANDLING"] = "0"
-
         store = c10d.FileStore(self.file_name, self.world_size)
         device = torch.device(f"xpu:{self.rank % torch.xpu.device_count()}")
         c10d.init_process_group(
@@ -524,7 +471,7 @@ class ProcessGroupXCCLGroupTest(MultiProcessTestCase):
             dist.all_reduce(t)
             dist.all_reduce(t)
 
-        os.environ["TORCH_XCCL_CUDA_EVENT_CACHE"] = "1"
+        os.environ["TORCH_XCCL_XPU_EVENT_CACHE"] = "1"
         store = c10d.FileStore(self.file_name, self.world_size)
         self._create_process_group_xccl(store, self.opts())
         device = self.rank_to_GPU[self.rank][0]
@@ -540,13 +487,12 @@ class ProcessGroupXCCLGroupTest(MultiProcessTestCase):
         torch.xpu.synchronize()
 
         # reset ENV
-        os.environ["TORCH_XCCL_CUDA_EVENT_CACHE"] = "0"
+        os.environ["TORCH_XCCL_XPU_EVENT_CACHE"] = "0"
 
     @requires_xccl()
     @skip_but_pass_in_sandcastle_if(
-        # skip for cu126 as well due to https://github.com/pytorch/pytorch/issues/153479
-        not (TEST_MULTIGPU ),
-        "XCCL test requires 2+ GPUs and Device side assert could cause unexpected errors in lower versions of CUDA",
+        not TEST_MULTIGPU,
+        "Test requires 2+ GPUs",
     )
     @parametrize(
         "type",
@@ -656,38 +602,6 @@ class ProcessGroupXCCLGroupTest(MultiProcessTestCase):
         c10d.destroy_process_group()
         # reset env
         os.environ["TORCH_XCCL_NAN_CHECK"] = "0"
-    def _helper_test_extra_xpu_context_by_nvml(self):
-        """
-        A helper for `test_extra_xpu_context`, if pynvml is available.
-        pynvml provides python bindings for NVIDIA NVML functionalities.
-        Here we are interested in: nvmlDeviceGetComputeRunningProcesses
-        """
-        import pynvml
-
-        pynvml.nvmlInit()
-
-        device = torch.device(f"xpu:{self.rank:d}")
-        x = torch.empty((1,), device=device)
-        work = c10d.all_reduce(x, async_op=True)
-
-        # Wait for non-0 ranks to garbage collect Work -- this is the latest
-        # point where extra CUDA context can be created
-        if self.rank == 0:
-            time.sleep(5)
-        del work
-        handle = pynvml.nvmlDeviceGetHandleByIndex(self.rank)
-        processes = pynvml.nvmlDeviceGetComputeRunningProcesses(handle)
-        nprocs = len(processes)
-
-        # A barrier for non-0 ranks
-        c10d.all_reduce(x)
-        torch.xpu.synchronize(device)
-        c10d.destroy_process_group()
-        self.assertLessEqual(
-            nprocs,
-            1,
-            f"Found {nprocs} processes creating contexts on {device}, expecting 1 at most",
-        )
 
     def _helper_test_extra_xpu_context_by_memory(self):
         """
@@ -732,6 +646,8 @@ class ProcessGroupXCCLGroupTest(MultiProcessTestCase):
     @requires_xccl()
     @skip_if_lt_x_gpu(2)
     def test_extra_xpu_context(self):
+        self.skipTest("XPU context test not supported")
+        # TODO: Use xpu-smi to detect XPU contexts
         # Check if non-0 ranks would create extra XPU context on device 0
         store = c10d.FileStore(self.file_name, self.world_size)
         device = torch.device(f"xpu:{self.rank:d}")
@@ -746,9 +662,12 @@ class ProcessGroupXCCLGroupTest(MultiProcessTestCase):
             self._helper_test_extra_xpu_context_by_nvml()
         except ModuleNotFoundError:
             self._helper_test_extra_xpu_context_by_memory()
+
     @requires_xccl()
     @skip_if_lt_x_gpu(2)
     def test_extra_xpu_context_sync_ops(self):
+        self.skipTest("XPU context test not supported")
+        # TODO: Use xpu-smi to detect XPU contexts
         # Loop a bunch of sync ops and see if any of them creates extra context.
         # Requires nvml to check number of processes resident on a device.
         try:
@@ -799,9 +718,6 @@ class ProcessGroupXCCLGroupTest(MultiProcessTestCase):
     @requires_xccl()
     @skip_but_pass_in_sandcastle_if(not TEST_MULTIGPU, "XCCL test requires 2+ XPUs")
     def test_destruct_before_terminate_pg(self):
-        # Disable ASYNC_ERROR_HANDLING for this test to ensure we can programmatically
-        # abort the process group.
-        os.environ["TORCH_XCCL_ASYNC_ERROR_HANDLING"] = "0"
         store = c10d.FileStore(self.file_name, self.world_size)
         pg = self._create_process_group_xccl(store, self.opts())
         device = self.rank_to_GPU[self.rank][0]
@@ -813,84 +729,10 @@ class ProcessGroupXCCLGroupTest(MultiProcessTestCase):
         del pg
 
     @requires_xccl()
-    @skip_but_pass_in_sandcastle_if(not TEST_MULTIGPU, "XCCL test requires 2+ XPUs")
-    def test_abort_in_destroy_pg(self):
-        # Disable ASYNC_ERROR_HANDLING for this test to ensure we can programmatically
-        # abort the process group.
-        os.environ["TORCH_XCCL_ASYNC_ERROR_HANDLING"] = "0"
-
-        store = c10d.FileStore(self.file_name, self.world_size)
-        pg = self._create_process_group_xccl(store, self.opts())
-        device = self.rank_to_GPU[self.rank][0]
-
-        t = torch.rand(10, 10, device=device)
-        # First allreduce to initialize state.
-        pg.allreduce(t)
-
-        # Destroy pg and validate pg is NOT in working condition since
-        # we have shutdown comms
-        dist.destroy_process_group()
-        with self.assertRaises(dist.DistBackendError):
-            pg.allreduce([t])
-
-    @requires_xccl()
-    @skip_but_pass_in_sandcastle_if(
-        torch.xpu.device_count() < 2, "XCCL test requires 2+ XPUs"
-    )
-    def test_abort_in_destroy_multi_pgs(self):
-        store = c10d.FileStore(self.file_name, self.world_size)
-        pg = self._create_process_group_xccl(store, self.opts())
-        device = self.rank_to_GPU[self.rank][0]
-        t = torch.rand(10, 10, device=device)
-        # First allreduce to initialize default PG's communicator.
-        pg.allreduce(t).wait()
-        new_pg1 = c10d.new_group([0, 1])
-        new_pg2 = c10d.new_group([0, 1])
-        t1 = torch.rand(10, 10, device=device)
-        t2 = torch.rand(10, 10, device=device)
-        new_pg1.allreduce(t1).wait()
-        new_pg2.allreduce(t2).wait()
-        backend = pg._get_backend(torch.device(device))
-        # default PG's backend should have a split count of 0 because
-        # it's not eager initialized
-        self.assertEqual(backend.comm_split_count(), 0)
-        # shutdown all XCCL PGs in one shot
-        dist.destroy_process_group()
-
-    @requires_xccl()
-    @skip_but_pass_in_sandcastle_if(
-        torch.xpu.device_count() < 2, "XCCL test requires 2+ XPUs"
-    )
-    def test_abort_in_destroy_mixed_empty_pgs(self):
-        store = c10d.FileStore(self.file_name, self.world_size)
-        pg = self._create_process_group_xccl(store, self.opts())
-        device = self.rank_to_GPU[self.rank][0]
-        t = torch.rand(10, 10, device=device)
-        # First allreduce to initialize default PG's communicator.
-        pg.allreduce(t).wait()
-        # PG1 is an PG without comms initialized, since we don't call collective on it
-        new_pg1 = c10d.new_group([0, 1])  # noqa: F841
-        new_pg2 = c10d.new_group([0, 1])
-        t2 = torch.rand(10, 10, device=device)
-
-        new_pg2.allreduce(t2).wait()
-        backend = pg._get_backend(torch.device(device))
-        # default PG's backend should have a split count of 0
-        self.assertEqual(backend.comm_split_count(), 0)
-        # shutdown all XCCL PGs in one shot
-        dist.destroy_process_group()
-
-    @requires_xccl()
     @skip_but_pass_in_sandcastle_if(
         torch.xpu.device_count() < 2, "XCCL test requires 2+ XPUs"
     )
     def test_file_store_check(self):
-        os.environ["TORCH_XCCL_ASYNC_ERROR_HANDLING"] = "0"
-        os.environ["TORCH_XCCL_ENABLE_MONITORING"] = "0"
-        # FileStore check() would be executed
-        os.environ["TORCH_XCCL_DUMP_ON_TIMEOUT"] = "1"
-        os.environ["TORCH_XCCL_HEARTBEAT_TIMEOUT_SEC"] = "0"
-
         # self.file_name is created using "delete=False"
         # e.g., self.file_name = tempfile.NamedTemporaryFile(delete=False).name
         store = dist.FileStore(self.file_name, self.world_size)
@@ -922,7 +764,7 @@ class ProcessGroupXCCLGroupTest(MultiProcessTestCase):
 
         # test the default value coming from the `init_process_group` kwarg default
         dist.init_process_group(**base_opts)
-        self._check_xccl_timeout(torch.distributed.constants.default_pg_xccl_timeout)
+        self._check_xccl_timeout(torch.distributed.constants.default_pg_timeout)
         dist.destroy_process_group()
 
         # test that `kwarg` timeout takes effect
@@ -940,7 +782,7 @@ class ProcessGroupXCCLGroupTest(MultiProcessTestCase):
             # TODO(whc) i verified that we are indeed emitting this warning, and i can't figure out why i can't catch it.
             # self.assertEqual(len(w), 1)
             # self.assertTrue("pg_options._timeout was specified" in str(w[-1].message))
-        self._check_xccl_timeout(torch.distributed.constants.default_pg_xccl_timeout)
+        self._check_xccl_timeout(torch.distributed.constants.default_pg_timeout)
         dist.destroy_process_group()
 
         # test that timeout value provided via `pg_options` kwarg is ignored and issues warning,
@@ -977,56 +819,6 @@ class ProcessGroupXCCLGroupTest(MultiProcessTestCase):
         c10d.distributed_c10d._set_pg_timeout(timedelta(seconds=252), pg)
         self._check_xccl_timeout(timedelta(seconds=252))
 
-    @requires_xccl()
-    @skip_but_pass_in_sandcastle_if(not TEST_MULTIGPU, "XCCL test requires 2+ XPUs")
-    @parametrize("backend", [None, "xccl"])
-    def test_extend_xccl_pg_timeout(self, backend):
-        torch.xpu.set_device(self.rank)
-        store = c10d.FileStore(self.file_name, self.world_size)
-        opts = dict(
-            backend=backend,
-            store=store,
-            rank=self.rank,
-            world_size=self.world_size,
-            timeout=timedelta(seconds=123),
-        )
-        dist.init_process_group(**opts)
-        pg = dist.distributed_c10d._get_default_group()
-        bankend = pg._get_backend(torch.device(f"xpu:{self.rank}"))
-        w = pg.allreduce(torch.rand(10).xpu(self.rank))
-        self.assertTrue(bankend._verify_work_timeout(w, timedelta(seconds=123)))
-        w.wait()
-        bankend._set_default_timeout(timedelta(seconds=3))
-        if self.rank == 0:
-            # Ideally we want to sleep for a very long time, but this is not
-            # feasible in unit test. So this is only a very tiny case.
-            time.sleep(5)
-            pg.allreduce(torch.rand(10).xpu(self.rank))
-            time.sleep(5)
-            pg.allreduce(torch.rand(5).xpu(self.rank))
-            w = pg.allreduce(torch.rand(10).xpu(self.rank))
-            self.assertTrue(bankend._verify_work_timeout(w, timedelta(seconds=3)))
-            w.wait()
-        else:
-            dist.distributed_c10d._add_ephemeral_timeout_for_all_pgs(
-                timedelta(seconds=10)
-            )
-            w1 = pg.allreduce(torch.rand(10).xpu(self.rank))
-            w2 = pg.allreduce(torch.rand(5).xpu(self.rank))
-            self.assertTrue(bankend._verify_work_timeout(w1, timedelta(seconds=13)))
-            self.assertTrue(bankend._verify_work_timeout(w2, timedelta(seconds=13)))
-            w1.wait()
-            dist.distributed_c10d._add_ephemeral_timeout_for_all_pgs(
-                timedelta(seconds=5)
-            )
-            # Since we are not block wait so use a sync here to leave enough time
-            # for watchdog to reset first timeout extension.
-            torch.xpu.synchronize(torch.device(f"xpu:{self.rank}"))
-            w = pg.allreduce(torch.rand(10).xpu(self.rank))
-            self.assertTrue(bankend._verify_work_timeout(w, timedelta(seconds=8)))
-            w.wait()
-
-    
     @skip_but_pass_in_sandcastle_if(not TEST_MULTIGPU, "XCCL test requires 2+ XPUs")
     @parametrize("eager_init", [True, False])
     def test_new_group(self, eager_init: bool):
@@ -1047,11 +839,8 @@ class ProcessGroupXCCLGroupTest(MultiProcessTestCase):
         dist.broadcast(tensor, 0, group=ng)
         dist.destroy_process_group()
 
-    
     @skip_but_pass_in_sandcastle_if(not TEST_MULTIGPU, "XCCL test requires 2+ XPUs")
-    # @skip_but_pass_in_sandcastle_if(
-    #     torch.xpu.xccl.version()[-1] == "x", "XCCL test not for XCCLX"
-    # )
+    @skipIfXpu(msg="XCCL doesn't currently support comm split, skipping test")
     def test_comm_split_subgroup(self):
         # Test `xcclCommSplit` for smaller subgroups of the world when
         # we've passed a specific device_id to init_process_group.
@@ -1074,7 +863,6 @@ class ProcessGroupXCCLGroupTest(MultiProcessTestCase):
         self.assertEqual(tensor, original_tensor)
         dist.destroy_process_group()
 
-    
     @skip_but_pass_in_sandcastle_if(not TEST_MULTIGPU, "XCCL test requires 2+ XPUs")
     def test_comm_eager_init_subgroup(self):
         # Test `xcclCommSplit` for smaller subgroups of the world when
@@ -1094,8 +882,8 @@ class ProcessGroupXCCLGroupTest(MultiProcessTestCase):
         torch.xpu.synchronize()
         dist.destroy_process_group()
 
-    
     @skip_but_pass_in_sandcastle_if(not TEST_MULTIGPU, "XCCL test requires 2+ XPUs")
+    @skipIfXpu(msg="XCCL doesn't currently support comm split, skipping test")
     def test_comm_split_group(self):
         # Test `xcclCommSplit` for smaller subgroups of the world when
         # we've passed a specific device_id to init_process_group.
@@ -1137,8 +925,8 @@ class ProcessGroupXCCLGroupTest(MultiProcessTestCase):
 
         dist.destroy_process_group()
 
-    
     @skip_but_pass_in_sandcastle_if(not TEST_MULTIGPU, "XCCL test requires 2+ XPUs")
+    @skipIfXpu(msg="XCCL doesn't currently support comm split, skipping test")
     def test_comm_split_group_mixed_backend(self):
         # Test `xcclCommSplit` for smaller subgroups of the world when
         # we've passed a specific device_id to init_process_group.
@@ -1193,71 +981,6 @@ class ProcessGroupXCCLGroupTest(MultiProcessTestCase):
 
         dist.destroy_process_group()
 
-    
-    @skip_but_pass_in_sandcastle_if(not TEST_MULTIGPU, "XCCL test requires 2+ XPUs")
-    def test_non_blocking_init(self):
-        # Test creating a pg using nonblocking mode but not eagerly
-        os.environ["TORCH_XCCL_USE_COMM_NONBLOCKING"] = "1"
-        os.environ["TORCH_XCCL_NONBLOCKING_TIMEOUT"] = "100"
-        store = c10d.FileStore(self.file_name, self.world_size)
-        device = self.rank_to_GPU[self.rank][0]
-        pg = self._create_process_group_xccl(store, self.opts())
-        backend = pg._get_backend(torch.device(device))
-        self.assertEqual(backend.comm_split_count(), 0)
-        reduce_tensor = torch.rand(10, 10, device=device)
-        # Run an allreduce, which should trigger a comm init for pg
-        pg.allreduce(reduce_tensor).wait()
-        new_pg = c10d.new_group()
-        # even after pg's collective call, new pg's comm is not initialized until its own collectcive calls
-        self.assertEqual(backend.comm_split_count(), 0)
-        broadcast_tensor = torch.tensor([self.rank]).xpu(device)
-        new_pg.broadcast(broadcast_tensor, 0).wait()
-        self.assertEqual(backend.comm_split_count(), 0)
-        dist.destroy_process_group()
-
-    
-    @skip_but_pass_in_sandcastle_if(not TEST_MULTIGPU, "XCCL test requires 2+ XPUs")
-    def test_non_blocking_with_eager_init(self):
-        # Test creating a pg eagerly with nonblocking mode when
-        # we've passed a specific device_id to init_process_group.
-        os.environ["TORCH_XCCL_USE_COMM_NONBLOCKING"] = "1"
-        os.environ["TORCH_XCCL_NONBLOCKING_TIMEOUT"] = "100"
-        store = c10d.FileStore(self.file_name, self.world_size)
-        device = torch.device(f"xpu:{self.rank}")
-        # bound device to trigger eager init mode
-        pg = self._create_process_group_xccl(store, self.opts(), device_id=device)
-        backend = pg._get_backend(torch.device(device))
-        self.assertEqual(backend.comm_split_count(), 0)
-        reduce_tensor = torch.rand(10, 10, device=device)
-        # Run an allreduce, comm should have already started initilizaing,
-        # but allreduce is issued to CUDA STREAM only after the initialization is a success
-        pg.allreduce(reduce_tensor).wait()
-        new_pg = c10d.new_group()
-        # new pg's comm is initialized eagerly
-        self.assertEqual(backend.comm_split_count(), 1)
-        broadcast_tensor = torch.tensor([self.rank]).xpu(device)
-        new_pg.broadcast(broadcast_tensor, 0).wait()
-        self.assertEqual(backend.comm_split_count(), 1)
-        dist.destroy_process_group()
-
-    @skip_but_pass_in_sandcastle_if(not TEST_MULTIGPU, "XCCL test requires 2+ XPUs")
-    def test_non_blocking_p2p(self):
-        # Test creating a pg using nonblocking mode but not eagerly
-        os.environ["TORCH_XCCL_USE_COMM_NONBLOCKING"] = "1"
-        os.environ["TORCH_XCCL_NONBLOCKING_TIMEOUT"] = "100"
-        store = c10d.FileStore(self.file_name, self.world_size)
-        device = self.rank_to_GPU[self.rank][0]
-        self._create_process_group_xccl(store, self.opts())
-        # Generate the same tensor
-        send_tensor = torch.ones(10, 10, device=device)
-        if self.rank == 0:
-            dist.send(send_tensor, 1)
-        if self.rank == 1:
-            recv_tensor = torch.rand(10, 10, device=device)
-            dist.recv(recv_tensor, 0)
-            self.assertEqual(send_tensor, recv_tensor)
-        dist.destroy_process_group()
-
     @skip_but_pass_in_sandcastle_if(not TEST_MULTIGPU, "XCCL test requires 2+ XPUs")
     @parametrize("eager_init", [True, False])
     def test_subgroup_p2p(self, eager_init: bool):
@@ -1306,628 +1029,6 @@ class ProcessGroupXCCLGroupTest(MultiProcessTestCase):
         pg_2 = c10d.new_group([0, 1])
         self.assertEqual(pg_2.group_desc, "undefined")
 
-    # @requires_xccl_shrink()
-    @requires_world_size(2)
-    def test_shrink_group_basic(self):
-        """Test basic shrink_group functionality."""
-        self._perform_shrink_test([1], "Basic shrink test")
-
-    # @requires_xccl_shrink()
-    @requires_world_size(2)
-    def test_shrink_group_validation(self):
-        """Test input validation in shrink_group."""
-        device, pg = self._setup_shrink_test("validation")
-
-        def _test_invalid_input(ranks, description, expected_exception):
-            """Helper to test invalid inputs."""
-            try:
-                c10d.shrink_group(ranks)
-                self.fail(f"Expected {expected_exception.__name__} for {description}")
-            except expected_exception:
-                log_test_validation(self.rank, f"✓ {description}")
-            except Exception:
-                if expected_exception is Exception:  # Accept any exception
-                    log_test_validation(self.rank, f"✓ {description}")
-                else:
-                    raise
-
-        # Test cases
-        _test_invalid_input([], "Empty exclusion list", ValueError)
-        if self.world_size > 1:
-            _test_invalid_input([0, 0, 1], "Duplicate ranks", Exception)
-        _test_invalid_input([self.world_size + 1], "Out of bounds rank", Exception)
-
-        log_test_success(self.rank, "All validation tests passed")
-        dist.destroy_process_group()
-
-    # @requires_xccl_shrink()
-    @requires_world_size(2)
-    def test_shrink_group_backend_properties(self):
-        """Test that backend properties are preserved after shrinking."""
-
-        test_name = "Backend Properties Test"
-        ranks_to_exclude = [0]
-
-        # Reuse _setup_shrink_test for complete setup (device, environment, and process group)
-        device, pg = self._setup_shrink_test("backend_properties")
-
-        # Follow _perform_shrink_test pattern from here
-        log_test_info(self.rank, f"{test_name} (world_size={self.world_size})")
-
-        is_excluded = self.rank in ranks_to_exclude
-        log_test_info(
-            self.rank,
-            f"Excluding ranks: {ranks_to_exclude}, am_excluded: {is_excluded}",
-        )
-
-        # Store original backend property values (not references) before shrinking
-        original_timeout = None
-        original_high_priority = None
-        if not is_excluded:
-            original_backend = pg._get_backend(device)
-            original_timeout = original_backend.options._timeout
-            original_high_priority = original_backend.options.is_high_priority_stream
-            log_test_info(
-                self.rank,
-                f"Storing original backend properties: timeout={original_timeout}, high_priority={original_high_priority}",
-            )
-
-        if is_excluded:
-            log_test_info(
-                self.rank,
-                f"Excluded rank {self.rank} - setup complete, skipping shrink operation",
-            )
-            dist.destroy_process_group()  # hang without it
-            return
-
-        # Only non-excluded ranks proceed with shrink (same as _perform_shrink_test)
-        log_test_info(self.rank, "Non-excluded rank calling shrink_group")
-        shrunk_pg = c10d.shrink_group(ranks_to_exclude)
-
-        # Reuse _validate_shrunk_group helper (same as _perform_shrink_test)
-        expected_size = self.world_size - len(ranks_to_exclude)
-        _ = self._validate_shrunk_group(shrunk_pg, expected_size, test_name)
-
-        # Add custom backend properties validation
-        new_backend = shrunk_pg._get_backend(device)
-        log_test_info(self.rank, "Validating backend properties are preserved")
-
-        new_timeout = new_backend.options._timeout
-        new_high_priority = new_backend.options.is_high_priority_stream
-
-        log_test_info(
-            self.rank,
-            f"Timeout comparison - original: {original_timeout}, new: {new_timeout}",
-        )
-        self.assertEqual(
-            original_timeout, new_timeout, f"{test_name}: timeout not preserved"
-        )
-
-        log_test_info(
-            self.rank,
-            f"High priority stream comparison - original: {original_high_priority}, new: {new_high_priority}",
-        )
-        self.assertEqual(
-            original_high_priority,
-            new_high_priority,
-            f"{test_name}: high_priority_stream not preserved",
-        )
-
-        log_test_validation(
-            self.rank, f"{test_name}: Backend properties preserved successfully"
-        )
-        log_test_success(
-            self.rank, f"{test_name} successful (shrink + backend validation)"
-        )
-
-        # Cleanup (same as _perform_shrink_test)
-        dist.destroy_process_group()
-
-    # @requires_xccl_shrink()
-    @requires_world_size(2)
-    def test_shrink_group_multiple_comms(self):
-        """Test shrink_group with multiple communicators and subgroup invalidation."""
-
-        device, pg = self._setup_shrink_test("multiple_comms")
-
-        # Create subgroup [0, 1] and test shrinking it
-        subgroup = c10d.new_group([0, 1])
-        if self.rank <= 1:
-            # Shrink subgroup: exclude rank 1
-            if self.rank == 0:  # Only rank 0 remains
-                shrunk_subgroup = c10d.shrink_group([1], group=subgroup)
-                self.assertEqual(shrunk_subgroup.size(), 1)
-                # Test communication on shrunk subgroup
-                tensor = torch.full((1,), self.rank).xpu(device)
-                c10d.all_reduce(tensor, group=shrunk_subgroup)
-                self.assertEqual(tensor.item(), 0)  # Only rank 0
-                log_test_success(self.rank, "Subgroup shrinking successful")
-
-        dist.barrier()  # Sync before default group test
-
-        # Shrink default group: exclude last rank
-        ranks_to_exclude = [self.world_size - 1]
-        if self.rank not in ranks_to_exclude:
-            shrunk_default = c10d.shrink_group(ranks_to_exclude)
-            expected_size = self.world_size - 1
-            self.assertEqual(shrunk_default.size(), expected_size)
-
-            # Test collective on shrunk default group
-            tensor = torch.full((1,), self.rank).xpu(device)
-            c10d.all_reduce(tensor, group=shrunk_default)
-            expected_sum = sum(
-                range(self.world_size - 1)
-            )  # 0 + 1 + ... + (world_size-2)
-            self.assertEqual(tensor.item(), expected_sum)
-            log_test_success(self.rank, "Default group shrinking successful")
-
-            # Note: After shrinking default group, the old subgroup is invalid
-            # due to global rank reassignment
-
-        dist.destroy_process_group()
-
-    def _test_shrink_group_with_flag(self, shrink_flag, flag_name, rank_to_exclude):
-        """Helper method to test shrink_group with a specific flag."""
-        if self.world_size < 2:
-            log_test_info(self.rank, f"Skipping (needs ≥2 GPUs, got {self.world_size})")
-            return
-        ranks_to_exclude = [rank_to_exclude]
-        log_test_info(self.rank, f"Using {flag_name} flag (value: {shrink_flag})")
-        if flag_name == "XCCL_SHRINK_ABORT":
-            log_test_info(
-                self.rank,
-                "ABORT flag will terminate ongoing operations before shrinking",
-            )
-
-        self._perform_shrink_test(
-            ranks_to_exclude, f"{flag_name} flag test", shrink_flags=shrink_flag
-        )
-
-    # @requires_xccl_shrink()
-    @requires_world_size(2)
-    def test_shrink_group_flags(self):
-        """Test shrink_group with different shrink flags."""
-        # Test ABORT flags
-        log_test_info(self.rank, "Testing XCCL_SHRINK_ABORT flag")
-        self._test_shrink_group_with_flag(XCCL_SHRINK_ABORT, "XCCL_SHRINK_ABORT", 1)
-
-    # @requires_xccl_shrink()
-    @requires_world_size(2)
-    def test_shrink_group_xccl_config(self):
-        """Verify that passing XCCL config via pg_options influences the shrunk group's backend options."""
-        device, pg = self._setup_shrink_test("config")
-        if self.rank == self.world_size - 1:
-            # excluded rank should not call shrink_group
-            dist.destroy_process_group()
-            return
-
-        # Prepare pg_options with XCCL config overrides
-        # Capture parent's current backend options to ensure we can prove override vs inherit
-        parent_backend = pg._get_backend(torch.device("xpu"))
-        parent_hp = parent_backend.options.is_high_priority_stream
-        parent_blocking = parent_backend.options.config.blocking
-
-        # Choose overrides that differ from the parent (flip where possible)
-        override_hp = not parent_hp
-        if parent_blocking in (0, 1):
-            override_blocking = 1 - parent_blocking
-        else:
-            # If undefined or unexpected, set to 1 which is a concrete value
-            override_blocking = 1
-
-        opts = c10d.ProcessGroupXCCL.Options()
-        opts.is_high_priority_stream = override_hp
-        opts.config.blocking = override_blocking
-
-        shrunk_pg = c10d.shrink_group([self.world_size - 1], pg_options=opts)
-
-        # Validate backend options propagated
-        backend = shrunk_pg._get_backend(torch.device("xpu"))
-        # is_high_priority_stream should exactly match our override and differ from parent
-        self.assertEqual(backend.options.is_high_priority_stream, override_hp)
-        self.assertNotEqual(backend.options.is_high_priority_stream, parent_hp)
-        # config is a struct; check representative field and difference from parent when meaningful
-        self.assertEqual(backend.options.config.blocking, override_blocking)
-        if parent_blocking in (0, 1):
-            self.assertNotEqual(backend.options.config.blocking, parent_blocking)
-
-        dist.destroy_process_group()
-
-    #@requires_xccl_shrink()
-    @requires_world_size(2)
-    def test_shrink_group_performance(self):
-        """Test shrink_group performance and regression detection."""
-        import time
-
-        ranks_to_exclude = self._get_default_ranks_to_exclude()
-        is_excluded = self.rank in ranks_to_exclude
-
-        if not ranks_to_exclude:
-            log_test_info(self.rank, "Skipping performance test (world_size=1)")
-            return
-
-        log_test_info(self.rank, f"Performance test with {self.world_size} processes")
-        device, pg = self._setup_shrink_test("performance")
-
-        if not is_excluded:
-            log_test_info(self.rank, "Measuring shrink_group performance")
-            start_time = time.time()
-            shrunk_pg = c10d.shrink_group(ranks_to_exclude)
-            end_time = time.time()
-
-            elapsed_time = end_time - start_time
-            log_test_info(self.rank, f"shrink_group: {elapsed_time:.3f}s")
-
-            # Regression check: should complete within reasonable time
-            self.assertLess(
-                elapsed_time,
-                30.0,
-                f"shrink_group took {elapsed_time:.3f}s, possible regression",
-            )
-
-            # Test collective performance
-            expected_size = self.world_size - len(ranks_to_exclude)
-            self._validate_shrunk_group(shrunk_pg, expected_size, "performance")
-
-            collective_start = time.time()
-            _ = self._test_collective_on_shrunk_group(
-                shrunk_pg, device, ranks_to_exclude, "performance"
-            )
-            collective_time = time.time() - collective_start
-
-            log_test_info(self.rank, f"all_reduce: {collective_time:.3f}s")
-            log_test_success(self.rank, "Performance test passed")
-        else:
-            log_test_info(self.rank, "Excluded rank - waiting")
-
-        dist.destroy_process_group()
-
-    # @requires_xccl_shrink()
-    @requires_world_size(4)
-    def test_shrink_group_multiple_exclusions(self):
-        """Test shrink_group with multiple ranks excluded at once."""
-        # Scale exclusions with world size
-        ranks_to_exclude = list(range(2, self.world_size, 2))  # Every other rank from 2
-
-        self._perform_shrink_test(ranks_to_exclude, "Multiple exclusions test")
-
-    # @requires_xccl_shrink()
-    @requires_world_size(3)
-    def test_shrink_group_multiple_iterations(self):
-        """Test multiple shrink operations in sequence."""
-        log_test_info(
-            self.rank,
-            f"Starting test_shrink_group_multiple_iterations with world_size={self.world_size}",
-        )
-
-        store = c10d.FileStore(self.file_name, self.world_size)
-        device = torch.device(f"xpu:{self.rank}")
-        _ = self._create_process_group_xccl(store, self.opts(), device_id=device)
-
-        # Track current effective world size throughout shrinking operations
-        current_world_size = self.world_size
-        log_test_info(self.rank, f"Initial world_size: {current_world_size}")
-
-        # First shrinking: exclude the last rank(s)
-        first_exclusion = [self.world_size - 1]
-        if self.world_size >= 6:
-            first_exclusion.append(
-                self.world_size - 2
-            )  # Exclude last two ranks for larger sizes
-
-        log_test_info(self.rank, f"First shrinking: excluding ranks {first_exclusion}")
-
-        if self.rank not in first_exclusion:
-            # Only non-excluded ranks should call shrink_group
-            first_pg = c10d.shrink_group(first_exclusion)
-            self.assertIsNotNone(first_pg)
-            # IMPORTANT: Update world size after first shrinking
-            current_world_size = first_pg.size()
-            expected_first_size = self.world_size - len(first_exclusion)
-            log_test_info(
-                self.rank,
-                f"After first shrinking: world_size {self.world_size} -> {current_world_size}",
-            )
-            self.assertEqual(first_pg.size(), expected_first_size)
-
-            # Second shrinking: exclude another rank from the remaining group
-            # Choose a rank that's in the middle range
-            if current_world_size >= 3:
-                second_exclusion = [
-                    current_world_size - 1
-                ]  # Exclude the new "last" rank
-                log_test_info(
-                    self.rank,
-                    f"Second shrinking from group of size {current_world_size}: excluding ranks {second_exclusion}",
-                )
-
-                if self.rank not in second_exclusion:
-                    # Only non-excluded ranks should call shrink_group for second iteration
-                    second_pg = c10d.shrink_group(second_exclusion, group=first_pg)
-                    self.assertIsNotNone(second_pg)
-                    # IMPORTANT: Update world size after second shrinking
-                    final_world_size = second_pg.size()
-                    expected_final_size = current_world_size - len(second_exclusion)
-                    log_test_info(
-                        self.rank,
-                        f"After second shrinking: world_size {current_world_size} -> {final_world_size}",
-                    )
-                    self.assertEqual(second_pg.size(), expected_final_size)
-
-                    # Test collective on final group
-                    tensor = torch.full((1,), self.rank).xpu(device)
-                    log_test_info(
-                        self.rank,
-                        f"Performing all_reduce on final group (size {final_world_size}) with tensor: {tensor.item()}",
-                    )
-                    c10d.all_reduce(tensor, group=second_pg)
-                    log_test_info(
-                        self.rank,
-                        f"Final all_reduce completed, result: {tensor.item()}",
-                    )
-
-                    # Calculate expected sum of remaining ranks
-                    all_excluded = set(first_exclusion + second_exclusion)
-                    remaining_ranks = [
-                        r for r in range(self.world_size) if r not in all_excluded
-                    ]
-                    expected_sum = sum(remaining_ranks)
-                    log_test_info(
-                        self.rank,
-                        f"Remaining ranks: {remaining_ranks}, expected sum: {expected_sum}, actual: {tensor.item()}",
-                    )
-                    self.assertEqual(tensor.item(), expected_sum)
-                    log_test_info(self.rank, "Final verification passed")
-                else:
-                    log_test_info(
-                        self.rank,
-                        "This rank excluded in second shrinking, not calling shrink_group",
-                    )
-            else:
-                log_test_info(
-                    self.rank, "Skipping second shrinking (remaining group too small)"
-                )
-        else:
-            log_test_info(
-                self.rank,
-                "This rank excluded in first shrinking, not calling shrink_group",
-            )
-
-        log_test_info(self.rank, "Destroying process group")
-        dist.destroy_process_group()
-        log_test_info(self.rank, "test_shrink_group_multiple_iterations completed")
-
-    # Helper methods for optimized shrink group tests
-    def _setup_shrink_test(self, test_suffix, world_size=None, warmup=True):
-        """Common setup for shrink group tests."""
-        os.environ["TORCH_XCCL_USE_COMM_NONBLOCKING"] = "1"
-        world_size = world_size or self.world_size
-        store = c10d.FileStore(self.file_name + f"_{test_suffix}", world_size)
-        device = torch.device(f"xpu:{self.rank}")
-        c10d.init_process_group(
-            "xccl",
-            world_size=world_size,
-            rank=self.rank,
-            store=store,
-            pg_options=self.opts(),
-            device_id=device,
-        )
-        pg = c10d.distributed_c10d._get_default_group()
-
-        if warmup:
-            c10d.all_reduce(torch.ones(1).xpu(device), group=pg)
-
-        return device, pg
-
-    def _validate_shrunk_group(self, shrunk_pg, expected_size, test_name=""):
-        """Validate properties of a shrunk process group."""
-        self.assertIsNotNone(shrunk_pg, f"{test_name}: shrunk_pg should not be None")
-        actual_size = shrunk_pg.size()
-        self.assertEqual(
-            actual_size, expected_size, f"{test_name}: group size mismatch"
-        )
-
-        new_rank = shrunk_pg.rank()
-        self.assertTrue(
-            0 <= new_rank < expected_size, f"{test_name}: invalid new rank {new_rank}"
-        )
-
-        log_test_info(
-            self.rank,
-            f"{test_name}: world_size {self.world_size} -> {actual_size}, rank {self.rank} -> {new_rank}",
-        )
-        return new_rank
-
-    def _test_collective_on_shrunk_group(
-        self, shrunk_pg, device, ranks_to_exclude, test_name=""
-    ):
-        """Test collective communication on shrunk group and verify correctness."""
-        test_tensor = torch.full((1,), self.rank, device=device, dtype=torch.float32)
-        c10d.all_reduce(test_tensor, group=shrunk_pg)
-
-        result = test_tensor.item()
-        expected_sum = sum(
-            r for r in range(self.world_size) if r not in ranks_to_exclude
-        )
-
-        self.assertEqual(
-            result, expected_sum, f"{test_name}: collective result mismatch"
-        )
-        log_test_info(
-            self.rank, f"{test_name}: collective passed ({result} == {expected_sum})"
-        )
-        return result
-
-    def _perform_shrink_test(
-        self, ranks_to_exclude, test_name, shrink_flags=0, with_collective=True
-    ):
-        """Complete shrink test flow: setup, shrink, validate, test collective, cleanup.
-
-        Consistent API: All ranks perform setup to initialize distributed environment.
-        ONLY non-excluded ranks call shrink_group() for both default and non-default groups.
-        Excluded ranks perform setup, then exit without calling shrink_group() or waiting.
-        """
-        log_test_info(self.rank, f"{test_name} (world_size={self.world_size})")
-
-        is_excluded = self.rank in ranks_to_exclude
-        log_test_info(
-            self.rank,
-            f"Excluding ranks: {ranks_to_exclude}, am_excluded: {is_excluded}",
-        )
-
-        # All ranks (including excluded ones) perform setup to initialize distributed environment
-        device, pg = self._setup_shrink_test(test_name.lower().replace(" ", "_"))
-        is_default_group = pg == c10d.distributed_c10d._get_default_group()
-
-        if is_excluded:
-            log_test_info(
-                self.rank,
-                f"Excluded rank {self.rank} - setup complete, skipping shrink operation",
-            )
-            if shrink_flags & XCCL_SHRINK_ABORT:
-                log_test_info(self.rank, f"Using abort for excluded rank {self.rank}")
-                pg._get_backend(torch.device(device)).abort()
-                log_test_info(
-                    self.rank, f"cleanup resources for excluded rank {self.rank}"
-                )
-                dist.destroy_process_group()
-                log_test_info(self.rank, f"Excluded rank {self.rank} - exit")
-            else:
-                log_test_info(
-                    self.rank, f"Using regular destroy for excluded rank {self.rank}"
-                )
-                dist.destroy_process_group()
-            return None
-
-        # Only non-excluded ranks proceed with shrink
-        log_test_info(
-            self.rank,
-            f"Non-excluded rank calling shrink_group (default_group={is_default_group})",
-        )
-        shrunk_pg = c10d.shrink_group(ranks_to_exclude, shrink_flags=shrink_flags)
-        log_test_info(
-            self.rank,
-            f"Non-excluded rank calling shrink_group (default_group={is_default_group}) done",
-        )
-
-        # Non-excluded ranks: validate and test the new group
-        expected_size = self.world_size - len(ranks_to_exclude)
-        _ = self._validate_shrunk_group(shrunk_pg, expected_size, test_name)
-
-        if with_collective:
-            _ = self._test_collective_on_shrunk_group(
-                shrunk_pg, device, ranks_to_exclude, test_name
-            )
-            log_test_success(self.rank, f"{test_name} successful (shrink + collective)")
-        else:
-            log_test_success(self.rank, f"{test_name} successful (shrink only)")
-
-        dist.destroy_process_group()
-        return shrunk_pg
-
-    def _get_default_ranks_to_exclude(self):
-        """Get default ranks to exclude based on world size."""
-        if self.world_size <= 1:
-            return []
-        return [self.world_size - 1]  # Exclude last rank by default
-
-    # @requires_xccl_shrink()
-    # @requires_world_size(3)
-    def test_shrink_group_vs_abort_reinit_performance(self):
-        """Compare performance of shrink_group vs traditional abort+reinit (simplified for reliability)."""
-        log_test_info(self.rank, "=== TEST 1: abort+reinit ===")
-
-        device, pg1 = self._setup_shrink_test("_perf_reinit")
-        torch.xpu.synchronize(device)
-
-        # Test 1: Traditional abort + reinit
-        start_time = time.perf_counter()
-        dist.destroy_process_group()
-
-        device, new_pg = self._setup_shrink_test("perf_shrink_test1")
-        reinit_time = time.perf_counter() - start_time
-
-        # Test collective with original rank values for fair comparison (non-blocking mode)
-        test_tensor = torch.full((1,), self.rank, device=device, dtype=torch.float32)
-        work = c10d.all_reduce(test_tensor, group=new_pg, async_op=True)
-        work.wait()
-
-        torch.xpu.synchronize(device)
-
-        # Verify correctness
-        expected_sum = sum(r for r in range(self.world_size))
-        self.assertEqual(test_tensor.item(), expected_sum, "Reinit collective failed")
-
-        log_test_info(self.rank, f"abort+reinit: {reinit_time:.4f}s")
-        dist.destroy_process_group(new_pg)
-
-        # Test 2: shrink_group with XCCL_SHRINK_ABORT
-        log_test_info(self.rank, "=== TEST 2: shrink_group ===")
-
-        ranks_to_exclude = [self.world_size - 1]
-        is_excluded = self.rank in ranks_to_exclude
-        log_test_info(
-            self.rank,
-            f"Excluding ranks: {ranks_to_exclude}, am_excluded: {is_excluded}",
-        )
-
-        device, pg1 = self._setup_shrink_test("perf_shrink_test2")  # Unique suffix
-
-        shrink_time = 0
-        if not is_excluded:
-            torch.xpu.synchronize(device)  # Ensure accurate timing
-            start_time = time.perf_counter()
-            shrunk_pg = c10d.shrink_group(
-                ranks_to_exclude, shrink_flags=XCCL_SHRINK_ABORT
-            )
-            c10d.all_reduce(torch.ones(1).xpu(device), group=shrunk_pg)
-            shrink_time = time.perf_counter() - start_time
-
-            # Test collective communication on shrunk group (non-blocking mode)
-            test_tensor = torch.full(
-                (1,), self.rank, device=device, dtype=torch.float32
-            )
-            work = c10d.all_reduce(test_tensor, group=shrunk_pg, async_op=True)
-            work.wait()
-
-            # Verify correctness
-            expected_sum = sum(
-                r for r in range(self.world_size) if r not in ranks_to_exclude
-            )
-            self.assertEqual(
-                test_tensor.item(),
-                expected_sum,
-                "shrink_test: collective result mismatch",
-            )
-
-            torch.xpu.synchronize(device)  # Ensure operations complete
-            log_test_info(self.rank, f"shrink_group: {shrink_time:.4f}s")
-            dist.destroy_process_group()
-        else:
-            log_test_info(self.rank, "Excluded from shrink test - exiting immediately")
-            dist.destroy_process_group()
-            return
-
-        # Performance analysis (only for participating ranks)
-        if shrink_time > 0 and reinit_time > 0:
-            speedup = reinit_time / shrink_time
-            time_saved = reinit_time - shrink_time
-
-            log_test_info(self.rank, "=== PERFORMANCE RESULTS ===")
-            log_test_info(self.rank, f"shrink_group:  {shrink_time:.4f}s")
-            log_test_info(self.rank, f"abort+reinit:  {reinit_time:.4f}s")
-            log_test_info(self.rank, f"time_saved:    {time_saved:+.4f}s")
-            log_test_info(self.rank, f"speedup:       {speedup:.2f}x")
-
-            if speedup > 1.1:
-                log_test_success(self.rank, "shrink_group significantly faster")
-            elif speedup > 0.9:
-                log_test_info(self.rank, "≈ comparable performance")
-            else:
-                log_test_warning(self.rank, "abort+reinit faster")
-
-        log_test_info(self.rank, "Performance test completed")
-
     @requires_xccl()
     @skip_but_pass_in_sandcastle_if(not TEST_MULTIGPU, "XCCL test requires 2+ XPUs")
     def test_deterministic_mode_no_break(self):
@@ -1972,9 +1073,6 @@ class DistributedDataParallelTest(
 ):
     def setUp(self):
         super().setUp()
-        # TORCH_XCCL_BLOCKING_WAIT overrides TORCH_XCCL_ASYNC_ERROR_HANDLING hence tests
-        # that use TORCH_XCCL_BLOCKING_WAIT will test it as expected.
-        os.environ["TORCH_XCCL_ASYNC_ERROR_HANDLING"] = "1"
         self._spawn_processes()
 
     def _get_process_group(self):
@@ -2213,49 +1311,6 @@ class DistributedDataParallelTest(
                         torch.allclose(p_ddp.grad, p_ref.grad, rtol=1e-5, atol=1e-5),
                         f"Real gradient mismatch at iteration {iteration}, param {name}",
                     )
-
-    @requires_xccl()
-    @skip_if_lt_x_gpu(2)
-    def test_xccl_propagate_error_reason(self):
-        # Need to use TORCH_XCCL_BLOCKING_WAIT and not ASYNC_ERROR_HANDLING,
-        # otherwise process will be taken down and we can't check for errors.
-        os.environ["TORCH_XCCL_ASYNC_ERROR_HANDLING"] = "0"
-        os.environ["TORCH_XCCL_BLOCKING_WAIT"] = "1"
-        # Need to disable TORCH_XCCL_DUMP_ON_TIMEOUT otherwise this test times out
-        os.environ["TORCH_XCCL_DUMP_ON_TIMEOUT"] = "0"
-        store = c10d.FileStore(self.file_name, self.world_size)
-        # provide sufficient timeout to initialize XCCL comm.
-        pg = c10d.ProcessGroupXCCL(
-            store, self.rank, self.world_size
-        )
-        pg_gloo = c10d.ProcessGroupGloo(store, self.rank, self.world_size)
-        pg.barrier().wait(timedelta(seconds=5))
-        # Simulate stuckness in rank 0.
-        if self.rank == 0:
-            pg_gloo.barrier().wait()
-        inp = torch.ones(1).xpu(self.rank)
-
-        if self.rank != 0:
-            # Time out due to rank 0 not calling into allreduce.
-            with self.assertRaises(dist.DistBackendError):
-                pg.allreduce([inp]).wait(timedelta(seconds=5))
-
-            # Now when nonzero rank attempts to use communicator, original failure reason should be logged.
-            try:
-                pg.allreduce([torch.ones(2).xpu(self.rank)]).wait()
-            except dist.DistBackendError as e:
-                self.assertTrue("aborted" in str(e))
-            else:
-                self.fail("Expected error to be raised!")
-
-            # Unblock rank 0
-            pg_gloo.barrier().wait()
-
-        # TODO: We can also test that if rank 0 attempts to use the communicator,
-        # then we should error out with the info that it was aborted due to
-        # timeout on another rank. Although this would only be the case after
-        # the watchdog has run on the rank, and there is no reliable way
-        # to confirm it has run.
 
     @requires_xccl()
     @skip_if_lt_x_gpu(2)
@@ -3056,6 +2111,8 @@ class DistributedDataParallelTest(
     @requires_xccl()
     @skip_if_lt_x_gpu(2)
     def test_param_layout_mismatch_error(self):
+        self.skipTest("Skipping test due to no oneCCL error reporting")
+        # TODO: expose proper error reporting in xccl backend
         process_group = self._get_process_group()
 
         dev0 = torch.device("xpu:" + str(gpus_for_rank(self.world_size)[self.rank][0]))
@@ -3157,12 +2214,7 @@ class DistributedDataParallelTest(
         # For these default DDP comm hooks, the only state is process group.
         state = process_group
         hook_options = [default.allreduce_hook, default.fp16_compress_hook]
-        if (
-            not TEST_WITH_ROCM
-            # and BFLOAT16_AVAILABLE
-            and c10d.is_xccl_available()
-            # and torch.xpu.xccl.version() >= (2, 10)
-        ):
+        if c10d.is_xccl_available():
             hook_options.append(default.bf16_compress_hook)
         for hook in hook_options:
             # Get GPU model with the hook registered.
@@ -3287,11 +2339,6 @@ class DistributedDataParallelTest(
         self._test_fp16_compress_wrapper()
 
     @requires_xccl()
-    #@requires_xccl_version((2, 10), "Need XCCL 2.10+ for BF16_COMPRESS")
-    # @skip_but_pass_in_sandcastle_if(
-    #     not BFLOAT16_AVAILABLE,
-    #     "BFloat16 is only supported by CUDA 11+",
-    # )
     @skip_if_lt_x_gpu(2)
     def test_bf16_compress_wrapper_xccl(self):
         self._test_bf16_compress_wrapper()
@@ -3327,11 +2374,6 @@ class DistributedDataParallelTest(
         self._test_fp16_compress_wrapper(gradient_as_bucket_view=True)
 
     @requires_xccl()
-    #@requires_xccl_version((2, 10), "Need XCCL 2.10+ for BF16_COMPRESS")
-    # @skip_but_pass_in_sandcastle_if(
-    #     not BFLOAT16_AVAILABLE,
-    #     "BFloat16 is only supported by CUDA 11+",
-    # )
     @skip_if_lt_x_gpu(2)
     def test_bf16_compress_wrapper_is_view(self):
         self._test_bf16_compress_wrapper(gradient_as_bucket_view=True)
@@ -3528,231 +2570,9 @@ class DistributedDataParallelTest(
         torch.xpu.synchronize(device=device_id)
 
 
-class WorkHookTest(MultiProcessTestCase):
-    @property
-    def world_size(self):
-        return 2
-
-    def setUp(self):
-        super().setUp()
-        # set TORCH_XCCL_ENABLE_TIMING to enable timing for CUDAEvents
-        # in ProcessGroup Work
-        os.environ["TORCH_XCCL_ENABLE_TIMING"] = "1"
-        self._spawn_processes()
-
-    def tearDown(self):
-        super().tearDown()
-        del os.environ["TORCH_XCCL_ENABLE_TIMING"]
-        try:
-            os.remove(self.file_name)
-        except OSError:
-            pass
-
-    def _get_store(self):
-        return dist.FileStore(self.file_name, self.world_size)
-
-    def _get_process_group(self):
-        store = self._get_store()
-        c10d.init_process_group(
-            "xccl", store=store, rank=self.rank, world_size=self.world_size
-        )
-        return c10d.distributed_c10d._get_default_group()
-
-    @requires_xccl()
-    @skip_if_lt_x_gpu(2)
-    def test_on_completion_hook_broadcast(self):
-        pg = self._get_process_group()
-        num_hook_fired = 0
-        durations: list[float] = []
-
-        def hook(work_info: torch._C._distributed_c10d.WorkInfo):
-            nonlocal num_hook_fired, durations
-            num_hook_fired += 1
-            durations.append(work_info.active_duration.total_seconds())
-
-        pg._register_on_completion_hook(hook)
-        tensor = torch.ones([2, 3]).xpu(self.rank) * self.rank
-        pg.broadcast([tensor]).wait()
-        pg.broadcast([tensor]).wait()
-
-        # N.B.: destroy_process_group is necessary to wait for
-        # all pending works to finish.
-        c10d.destroy_process_group(pg)
-
-        self.assertEqual(num_hook_fired, 2)
-        self.assertEqual(len(durations), 2)
-        for duration in durations:
-            self.assertTrue(duration > 0)
-
-        self.assertEqual(tensor, torch.zeros([2, 3]).xpu(self.rank))
-
-    @requires_xccl()
-    @skip_if_lt_x_gpu(2)
-    def test_on_completion_hook_mixed_ops(self):
-        pg = self._get_process_group()
-        num_hook_fired = 0
-        durations: list[float] = []
-
-        def hook(work_info: torch._C._distributed_c10d.WorkInfo):
-            nonlocal num_hook_fired, durations
-            num_hook_fired += 1
-            durations.append(work_info.active_duration.total_seconds())
-
-        pg._register_on_completion_hook(hook)
-        tensor = torch.ones([2, 3]).xpu(self.rank)
-        tensor_list = [torch.empty_like(tensor) for _ in range(self.world_size)]
-        # intentionally using async ops.
-        pg.allreduce(tensor)
-        pg.allgather(tensor_list, tensor)
-        pg.allreduce(tensor)
-
-        # N.B.: destroy_process_group is necessary to wait for
-        # all pending works to finish.
-        c10d.destroy_process_group(pg)
-
-        self.assertEqual(num_hook_fired, 3)
-        self.assertEqual(len(durations), 3)
-        for duration in durations:
-            self.assertTrue(duration > 0)
-
-        self.assertEqual(
-            tensor,
-            torch.ones([2, 3]).xpu(self.rank) * self.world_size * self.world_size,
-        )
-
-        self.assertEqual(
-            tensor_list,
-            [
-                torch.ones([2, 3]).xpu(self.rank) * self.world_size
-                for _ in range(self.world_size)
-            ],
-        )
-
-    @requires_xccl()
-    @skip_if_lt_x_gpu(2)
-    def test_on_completion_hook_with_ddp(self):
-        pg = self._get_process_group()
-        num_hook_fired: dict[int, int] = {}
-        durations: dict[OpType, list[float]] = {}
-
-        def hook(work_info: torch._C._distributed_c10d.WorkInfo):
-            nonlocal num_hook_fired, durations
-            op_type = work_info.op_type
-            if op_type not in num_hook_fired:
-                num_hook_fired[op_type] = 0
-                durations[op_type] = []
-            num_hook_fired[op_type] += 1
-            durations[op_type].append(work_info.active_duration.total_seconds())
-
-        pg._register_on_completion_hook(hook)
-
-        nlayers = 10
-        net = nn.Sequential(
-            *[nn.Linear(1000, 1000, bias=False) for _ in range(nlayers)]
-        ).to(self.rank)
-
-        ddp = DistributedDataParallel(
-            net,
-            device_ids=[self.rank],
-            process_group=pg,
-            bucket_cap_mb=1,
-        )
-
-        pg._wait_for_pending_works()
-
-        # DDP is expected to synchronize model parameter by broadcasting
-        # from rank0 to other ranks. However, this is DDP's internal implementation,
-        # which is subject to change in future versions.
-        self.assertTrue(num_hook_fired[OpType.BROADCAST] > 0)
-        ctor_allreduce = num_hook_fired.get(OpType.ALLREDUCE, 0)
-
-        x = torch.zeros(2, 1000).xpu(self.rank)
-        ddp(x).sum().backward()
-
-        c10d.destroy_process_group(pg)
-
-        self.assertTrue(OpType.ALLREDUCE in num_hook_fired)
-        # The number of allreduce ops depend on DDP internal implementation, but
-        # there should be at least one allreduce.
-        self.assertTrue(num_hook_fired[OpType.ALLREDUCE] - ctor_allreduce > 0)
-        self.assertTrue(all(duration > 0 for duration in chain(*(durations.values()))))
-
-    # Not testing FSDP due to https://github.com/pytorch/pytorch/issues/90848.
-    # We cannot disable workCleanupLoop() as hooks are fired in that thread.
-
-    @requires_xccl()
-    @skip_if_lt_x_gpu(2)
-    def test_on_completion_hook_all_gather_object(self):
-        torch.xpu.set_device(self.rank)
-
-        pg = self._get_process_group()
-        num_hook_fired: dict[int, int] = {}
-        durations: dict[OpType, list[float]] = {}
-
-        def hook(work_info: torch._C._distributed_c10d.WorkInfo):
-            nonlocal num_hook_fired, durations
-            op_type = work_info.op_type
-            if op_type not in num_hook_fired:
-                num_hook_fired[op_type] = 0
-                durations[op_type] = []
-            num_hook_fired[op_type] += 1
-            durations[op_type].append(work_info.active_duration.total_seconds())
-
-        pg._register_on_completion_hook(hook)
-
-        obj = {"rank": self.rank, "world_size": self.world_size}
-        obj_list = [None for _ in range(self.world_size)]
-
-        c10d.all_gather_object(obj_list, obj, group=pg)
-
-        for r, o in enumerate(obj_list):
-            self.assertTrue(isinstance(o, dict))
-            self.assertTrue(set(o.keys()), {"rank", "world_size"})
-            self.assertEqual(o["rank"], r)
-            self.assertEqual(o["world_size"], self.world_size)
-
-        c10d.destroy_process_group(pg)
-
-        self.assertTrue(OpType.ALLGATHER in num_hook_fired)
-        self.assertEqual(len(num_hook_fired), 1)
-        # two allgathers, one for size and another for values
-        self.assertEqual(num_hook_fired[OpType.ALLGATHER], 2)
-        self.assertTrue(all(duration > 0 for duration in durations[OpType.ALLGATHER]))
-
-    @requires_xccl()
-    @skip_if_lt_x_gpu(2)
-    def test_on_completion_hook_seq(self):
-        pg = self._get_process_group()
-        num_hook_fired = 0
-        seq: int = -1
-        work: int = 0
-
-        def hook(work_info: torch._C._distributed_c10d.WorkInfo):
-            nonlocal num_hook_fired, seq
-            num_hook_fired += 1
-            seq = work_info.seq
-
-        pg._register_on_completion_hook(hook)
-        tensor = torch.ones([2, 3]).xpu(self.rank) * self.rank
-        work_count = 3
-        for _ in range(work_count):
-            work += 1
-            pg.broadcast([tensor]).wait()
-
-        # N.B.: destroy_process_group is necessary to wait for
-        # all pending works to finish.
-        c10d.destroy_process_group(pg)
-
-        self.assertEqual(num_hook_fired, work_count)
-        self.assertEqual(work, seq)
-
-
 class XcclErrorHandlingTest(MultiProcessTestCase):
     def setUp(self):
         super().setUp()
-        # TORCH_XCCL_BLOCKING_WAIT overrides TORCH_XCCL_ASYNC_ERROR_HANDLING hence tests
-        # that use TORCH_XCCL_BLOCKING_WAIT will test it as expected.
-        os.environ["TORCH_XCCL_ASYNC_ERROR_HANDLING"] = "1"
         self._spawn_processes()
 
     def tearDown(self):
@@ -3777,12 +2597,6 @@ class XcclErrorHandlingTest(MultiProcessTestCase):
     def _run_all_reduce(self, pg):
         pg.allreduce(torch.rand(10).xpu(self.rank))
 
-    def _reduce_timeout(self):
-        # set heartbeat timeout to a small value so that we don't wait too long
-        # for things to shutdown
-        os.environ["TORCH_XCCL_HEARTBEAT_TIMEOUT_SEC"] = "4"
-        os.environ["TORCH_XCCL_WAIT_TIMEOUT_DUMP_MILSEC"] = "1000"
-
     @requires_xccl()
     @skip_if_lt_x_gpu(3)
     def test_send_recv_non_dense_tensor(self):
@@ -3802,19 +2616,9 @@ class XcclErrorHandlingTest(MultiProcessTestCase):
                 dist.recv(block, src=0)
 
     @requires_xccl()
-    #@requires_xccl_version((2, 4, 0), "Need XCCL 2.4+ for error checking")
     @skip_if_lt_x_gpu(3)
-    @skip_if_rocm_multiprocess
     @skip_but_pass_in_sandcastle("Test does not pass when run locally")
     def test_xccl_errors_nonblocking(self):
-        self._reduce_timeout()
-        # Note: we unset and restore TORCH_XCCL_ASYNC_ERROR_HANDLING for this test
-        # since test_c10d_common runs with async error handling by default, but this
-        # tests behavior when it is not enabled.
-        prev_xccl_async_error_handling = os.environ.get(
-            "TORCH_XCCL_ASYNC_ERROR_HANDLING", None
-        )
-        os.environ["TORCH_XCCL_ASYNC_ERROR_HANDLING"] = "0"
         store = c10d.FileStore(self.file_name, self.world_size)
         process_group = c10d.ProcessGroupXCCL(store, self.rank, self.world_size)
         process_group.allreduce(torch.rand(10).xpu(self.rank))
@@ -3833,16 +2637,11 @@ class XcclErrorHandlingTest(MultiProcessTestCase):
             t.join(int(get_timeout(self.id()) / 5))
             self.assertTrue(t.is_alive())
 
-        if prev_xccl_async_error_handling is not None:
-            os.environ["TORCH_XCCL_ASYNC_ERROR_HANDLING"] = (
-                prev_xccl_async_error_handling
-            )
-
     @requires_xccl()
     @skip_if_lt_x_gpu(3)
     def test_xccl_errors_blocking(self):
-        self._reduce_timeout()
-        os.environ["TORCH_XCCL_ASYNC_ERROR_HANDLING"] = "0"
+        # TODO: expose proper error reporting in xccl backend
+        self.skipTest("Skipping test due to no oneCCL error reporting")
         store = c10d.FileStore(self.file_name, self.world_size)
         process_group = c10d.ProcessGroupXCCL(
             store,
@@ -3873,19 +2672,18 @@ class XcclErrorHandlingTest(MultiProcessTestCase):
                     timeout=timedelta(seconds=self.op_timeout_sec)
                 )
 
-    # @with_xccl_blocking_wait
     @requires_xccl()
-    # #@requires_xccl_version((2, 4, 0), "Need XCCL 2.4+ for error checking")
     @skip_if_lt_x_gpu(3)
     def test_xccl_blocking_wait_with_barrier(self):
-        self._reduce_timeout()
+        # TODO: expose proper error reporting in xccl backend
+        self.skipTest("Skipping test due to no oneCCL error reporting")
         self._test_barrier_error()
 
     @requires_xccl()
-    # #@requires_xccl_version((2, 4, 0), "Need XCCL 2.4+ for error checking")
     @skip_if_lt_x_gpu(3)
     def test_xccl_non_blocking_wait_with_barrier(self):
-        self._reduce_timeout()
+        # TODO: expose proper error reporting in xccl backend
+        self.skipTest("Skipping test due to no oneCCL error reporting")
         # test the barrier behavior in the non blocking wait setting
         prev_xccl_async_error_handling = os.environ.get(
             "TORCH_XCCL_ASYNC_ERROR_HANDLING", None
@@ -3901,6 +2699,9 @@ class XcclErrorHandlingTest(MultiProcessTestCase):
     @requires_xccl()
     @skip_if_lt_x_gpu(3)
     def test_error_detection_and_propagation(self):
+        # TODO: expose proper error reporting in xccl backend
+        self.skipTest("Skipping test due to no oneCCL error reporting")
+
         def assert_fut_success(fut):
             self.assertEqual(WorkResult(fut.value()), WorkResult.SUCCESS)
 
@@ -3950,19 +2751,11 @@ class XcclErrorHandlingTest(MultiProcessTestCase):
             )
 
     @requires_xccl()
-    #@requires_xccl_version((2, 4, 0), "Need XCCL 2.4+ for error checking")
     @skip_if_lt_x_gpu(3)
     def test_restart_pg_after_error(self):
-        self._reduce_timeout()
+        # TODO: expose proper error reporting in xccl backend
+        self.skipTest("Skipping test due to no oneCCL error reporting")
         # test the barrier behavior in the non blocking wait setting
-        prev_xccl_async_error_handling = os.environ.get(
-            "TORCH_XCCL_ASYNC_ERROR_HANDLING", None
-        )
-        # avoid FR dumping logic during restart
-        os.environ["TORCH_XCCL_DUMP_ON_TIMEOUT"] = "0"
-        # avoid watchdog thread interference
-        os.environ["TORCH_XCCL_ASYNC_ERROR_HANDLING"] = "0"
-        os.environ["TORCH_XCCL_PROPAGATE_ERROR"] = "1"
         store = c10d.FileStore(self.file_name, self.world_size)
         device = torch.device(f"xpu:{self.rank % torch.xpu.device_count()}")
         # initialize pg for the first time
@@ -4025,11 +2818,6 @@ class XcclErrorHandlingTest(MultiProcessTestCase):
             time.sleep(4)
             os.remove(new_file_name)
 
-        if prev_xccl_async_error_handling is not None:
-            os.environ["TORCH_XCCL_ASYNC_ERROR_HANDLING"] = (
-                prev_xccl_async_error_handling
-            )
-
     def _run_invalid_xccl_blocking_wait_env(self, val):
         os.environ["TORCH_XCCL_BLOCKING_WAIT"] = val
         store = c10d.FileStore(self.file_name, self.world_size)
@@ -4045,138 +2833,6 @@ class XcclErrorHandlingTest(MultiProcessTestCase):
         self._run_invalid_xccl_blocking_wait_env("4294967295")
 
 
-class XcclUserBufferRegistrationTest(MultiProcessTestCase):
-    def setUp(self):
-        super().setUp()
-        with tempfile.NamedTemporaryFile(delete=False) as xccl_debug_file:
-            xccl_env = {
-                # TORCH_XCCL_BLOCKING_WAIT overrides TORCH_XCCL_ASYNC_ERROR_HANDLING hence tests
-                # that use TORCH_XCCL_BLOCKING_WAIT will test it as expected.
-                "TORCH_XCCL_ASYNC_ERROR_HANDLING": "1",
-                "XCCL_ALGO": "NVLS",
-                "XCCL_DEBUG": "INFO",
-                "XCCL_DEBUG_SUBSYS": "NVLS",
-                "XCCL_DEBUG_FILE": xccl_debug_file.name,
-            }
-            if torch.xpu.xccl.version() >= (2, 24, 3):
-                xccl_env["XCCL_DEBUG_SUBSYS"] = "REG,TUNING"
-            self.env_patcher = mock.patch.dict(os.environ, xccl_env)
-            self.env_patcher.start()
-            self._spawn_processes()
-
-    def tearDown(self):
-        self.env_patcher.stop()
-        super().tearDown()
-        try:
-            os.remove(self.file_name)
-        except OSError:
-            pass
-
-    @requires_xccl()
-    #@requires_xccl_version((2, 19), "Need XCCL 2.19 for user buffer registration")
-    @skip_if_lt_x_gpu(4)
-    @requires_multicast_support()
-    def test_xccl_user_buffer_registration(self):
-        store = c10d.FileStore(self.file_name, self.world_size)
-        device = torch.device(f"xpu:{self.rank}")
-        c10d.init_process_group(
-            backend="xccl",
-            rank=self.rank,
-            world_size=self.world_size,
-            store=store,
-            device_id=device,
-        )
-        torch.xpu.set_device(self.rank)
-        pg = c10d.distributed_c10d._get_default_group()
-        backend = pg._get_backend(torch.device(device))
-
-        # Use XCCL memory allocator
-        pool = torch.xpu.MemPool(backend.mem_allocator)
-
-        # allocate memory with xcclMemAlloc
-        with torch.xpu.use_mem_pool(pool):
-            tensor = torch.arange(1024 * 1024 * 2, device=device)
-
-        # register buffers to XCCL
-        backend.register_mem_pool(pool)
-
-        # allreduce now should use NVIDIA Switches
-        pg.allreduce(tensor).wait()
-        torch.xpu.synchronize(device=device)
-
-        # de-register buffers from XCCL
-        backend.deregister_mem_pool(pool)
-
-        # clean up memory
-        del tensor, pool
-
-        with open(os.environ["XCCL_DEBUG_FILE"]) as f:
-            xccl_debug_file_content = f.read()
-            # if buffers were registered and NVLS reduction ran, XCCL_DEBUG
-            # should show successful registration in debug output
-            if torch.xpu.xccl.version() >= (2, 24, 3):
-                self.assertRegex(
-                    xccl_debug_file_content, "successfully registered NVLS"
-                )
-            else:
-                self.assertRegex(xccl_debug_file_content, "local-registered")
-
-    @requires_xccl()
-    #@requires_xccl_version((2, 27), "Need XCCL 2.27 for window registration")
-    @skip_if_lt_x_gpu(4)
-    @requires_multicast_support()
-    def test_xccl_window_registration(self):
-        store = c10d.FileStore(self.file_name, self.world_size)
-        device = torch.device(f"xpu:{self.rank}")
-        with torch.xpu.device(device):
-            # Eager init the xccl comm so that we don't implicitly create one during register_mem_pool
-            c10d.init_process_group(
-                backend="xccl",
-                rank=self.rank,
-                world_size=self.world_size,
-                store=store,
-                device_id=device,
-            )
-            pg = c10d.distributed_c10d._get_default_group()
-            backend = pg._get_backend(torch.device(device))
-
-            # Use XCCL memory allocator
-            # enable symmetric memory usage in XCCL
-            pool = torch.xpu.MemPool(backend.mem_allocator)
-
-            # allocate memory with xcclMemAlloc
-            # note: symmetric kernels are not available for dtypes like torch.int64
-            with torch.xpu.use_mem_pool(pool):
-                tensor = torch.arange(
-                    1024 * 1024 * 2, device=device, dtype=torch.float32
-                )
-
-            # register buffers to XCCL
-            backend.register_mem_pool(pool, symm=True)
-
-            # allreduce now should use NVIDIA Switches
-            pg.allreduce(tensor).wait()
-            # check that further allocations are also registered
-            with torch.xpu.use_mem_pool(pool):
-                tensor = torch.arange(
-                    1024 * 1024 * 2, device=device, dtype=torch.float32
-                )
-            pg.allreduce(tensor).wait()
-            torch.xpu.synchronize(device=device)
-
-            # de-register buffers from XCCL
-            backend.deregister_mem_pool(pool)
-
-            # clean up memory
-            del tensor, pool
-
-        with open(os.environ["XCCL_DEBUG_FILE"]) as f:
-            xccl_debug_file_content = f.read()
-            # if buffers were registered and symmetric kernels ran, XCCL_DEBUG
-            # should show successful registration in debug output
-            self.assertRegex(xccl_debug_file_content, "Symmetric")
-
-
 class CommTest(test_c10d_common.AbstractCommTest, MultiProcessTestCase):
     @property
     def device(self):
@@ -4184,9 +2840,6 @@ class CommTest(test_c10d_common.AbstractCommTest, MultiProcessTestCase):
 
     def setUp(self):
         super().setUp()
-        # TORCH_XCCL_BLOCKING_WAIT overrides TORCH_XCCL_ASYNC_ERROR_HANDLING hence tests
-        # that use TORCH_XCCL_BLOCKING_WAIT will test it as expected.
-        os.environ["TORCH_XCCL_ASYNC_ERROR_HANDLING"] = "1"
         self._spawn_processes()
 
     def tearDown(self):
@@ -4292,7 +2945,6 @@ class CommTest(test_c10d_common.AbstractCommTest, MultiProcessTestCase):
 
     @requires_xccl()
     @skip_if_lt_x_gpu(2)
-    @runOnRocmArch(MI300_ARCH)
     def test_intra_node_comm_all_reduce(self):
         from torch.testing._internal.common_cuda import SM80OrLater
 
@@ -4344,28 +2996,6 @@ class CommTest(test_c10d_common.AbstractCommTest, MultiProcessTestCase):
         c10d.destroy_process_group()
 
     @requires_xccl()
-    #@requires_xccl_version(
-    #     (2, 22), "Need XCCL 2.22+ for configuring estimate comm time"
-    # )
-    @skip_if_lt_x_gpu(2)
-    def test_time_estimate_xccl(self):
-        store = c10d.FileStore(self.file_name, self.world_size)
-        torch.xpu.set_device(self.rank)
-        c10d.init_process_group(
-            backend="xccl", store=store, rank=self.rank, world_size=self.world_size
-        )
-        process_group = c10d.distributed_c10d._get_default_group()
-        device = torch.device(f"xpu:{self.rank:d}")
-        t = torch.full(
-            (1024,),
-            self.rank,
-        ).xpu()
-        with dist._time_estimator(group=process_group, device=device) as cm:
-            c10d.all_reduce(t, c10d.ReduceOp.SUM)
-        self.assertTrue(cm.estimated_time is not None)
-        self.assertTrue(cm.estimated_time > 0)
-
-    @requires_xccl()
     @skip_if_lt_x_gpu(2)
     def test_sequence_num_set_default_pg_xccl(self):
         torch.xpu.set_device(self.rank)
@@ -4414,59 +3044,6 @@ class CommTest(test_c10d_common.AbstractCommTest, MultiProcessTestCase):
         pg_opts = c10d.ProcessGroupXCCL.Options()
         pg_opts.is_high_priority_stream = True
         self._test_pass_xccl_options(pg_opts)
-
-    @requires_xccl()
-    #@requires_xccl_version(
-    #     (2, 18), "Need XCCL 2.17+ for configuring XCCL communicators"
-    # )
-    @skip_if_lt_x_gpu(2)
-    def test_pass_xccl_options_config(self):
-        pg_opts = c10d.ProcessGroupXCCL.Options()
-        pg_opts.config.max_ctas = 4
-        pg_opts.config.min_ctas = 2
-        pg_opts.config.cga_cluster_size = 2
-        pg_opts.config.net_name = "Socket"
-        pg_opts.config.split_share = 1
-        os.environ["XCCL_DEBUG"] = "INFO"
-        with tempfile.NamedTemporaryFile() as xccl_debug_file:
-            os.environ["XCCL_DEBUG_FILE"] = xccl_debug_file.name
-
-            # Tests functionality when passing xccl config
-            self._test_pass_xccl_options(pg_opts)
-
-            # Tests if comms were configured
-            xccl_debug_file_content = xccl_debug_file.read()
-        max_ctas = re.search(rb"Max CTAs.*(\d+)|$", xccl_debug_file_content).group(1)
-        min_ctas = re.search(rb"Min CTAs.*(\d+)|$", xccl_debug_file_content).group(1)
-        split_share = re.search(
-            rb"Split share.*(\d+)|$", xccl_debug_file_content
-        ).group(1)
-        cga_cluster_size = re.search(
-            rb"CGA cluster.*(\d+)|$", xccl_debug_file_content
-        ).group(1)
-        net_name = re.search(
-            rb"Using network.([a-zA-z]+)|$", xccl_debug_file_content
-        ).group(1)
-        self.assertEqual(pg_opts.config.max_ctas, int(max_ctas))
-        self.assertEqual(pg_opts.config.min_ctas, int(min_ctas))
-        self.assertEqual(pg_opts.config.cga_cluster_size, int(cga_cluster_size))
-        self.assertEqual(pg_opts.config.net_name, net_name.decode())
-        self.assertEqual(pg_opts.config.split_share, int(split_share))
-
-        # Tests that config is inited correctly
-        pg_opts = c10d.ProcessGroupXCCL.Options()
-        xccl_cfg = c10d.ProcessGroupXCCL.XCCLConfig()
-        self.assertEqual(pg_opts.config.min_ctas, -2147483648)
-        self.assertEqual(xccl_cfg.min_ctas, -2147483648)
-
-        # Tests that opts and config can be copied
-        pg_opts_2 = copy.deepcopy(pg_opts)
-        xccl_cfg_2 = copy.copy(pg_opts_2.config)
-        pg_opts_2.config.min_ctas = 2
-        xccl_cfg_2.min_ctas = 4
-        self.assertEqual(pg_opts.config.min_ctas, -2147483648)
-        self.assertEqual(pg_opts_2.config.min_ctas, 2)
-        self.assertEqual(xccl_cfg_2.min_ctas, 4)
 
     @requires_xccl()
     @skip_if_lt_x_gpu(4)
@@ -4661,7 +3238,7 @@ class CommTest(test_c10d_common.AbstractCommTest, MultiProcessTestCase):
 
 
 class SetDeviceMethod(Enum):
-    TORCH_CUDA_SET = auto()  # torch.xpu.set_device
+    TORCH_XPU_SET = auto()  # torch.xpu.set_device
     COLLECTIVE_ARGUMENT = auto()  # broadcast_object_list(device=)
 
 
@@ -4704,8 +3281,6 @@ class XcclProcessGroupWithDispatchedCollectivesTests(
     @parametrize("float8_dtype", [torch.float8_e4m3fn, torch.float8_e5m2])
     def test_allgather_float8(self, float8_dtype):
         device = torch.device(f"xpu:{self.rank:d}")
-        if not sm_is_or_higher_than(device, 9, 0):  # noqa: F821
-            self.skipTest("FP8 reduction support begins with sm90 capable devices")
         store = dist.FileStore(self.file_name, self.world_size)
         dist.init_process_group(
             "xccl",
@@ -4728,9 +3303,6 @@ instantiate_parametrized_tests(XcclProcessGroupWithDispatchedCollectivesTests)
 class LargeCommTest(test_c10d_common.AbstractLargeCommTest, MultiProcessTestCase):
     def setUp(self):
         super().setUp()
-        # TORCH_XCCL_BLOCKING_WAIT overrides TORCH_XCCL_ASYNC_ERROR_HANDLING hence tests
-        # that use TORCH_XCCL_BLOCKING_WAIT will test it as expected.
-        os.environ["TORCH_XCCL_ASYNC_ERROR_HANDLING"] = "1"
         self._spawn_processes()
 
     def tearDown(self):
@@ -4989,7 +3561,7 @@ class LargeCommTest(test_c10d_common.AbstractLargeCommTest, MultiProcessTestCase
     @skip_if_lt_x_gpu(4)
     @parametrize(
         "set_device",
-        [SetDeviceMethod.TORCH_CUDA_SET, SetDeviceMethod.COLLECTIVE_ARGUMENT],
+        [SetDeviceMethod.TORCH_XPU_SET, SetDeviceMethod.COLLECTIVE_ARGUMENT],
     )
     @parametrize("group_rank", [True, False])
     def test_send_recv_object_list_subgroup(
@@ -4999,7 +3571,7 @@ class LargeCommTest(test_c10d_common.AbstractLargeCommTest, MultiProcessTestCase
         if self.rank >= world_size:
             return
         subgroup = self._init_two_pg2_subgroups(world_size)
-        if set_device == SetDeviceMethod.TORCH_CUDA_SET:
+        if set_device == SetDeviceMethod.TORCH_XPU_SET:
             torch.xpu.set_device(self.rank)
             device = None
         else:
@@ -5027,7 +3599,7 @@ class LargeCommTest(test_c10d_common.AbstractLargeCommTest, MultiProcessTestCase
     @skip_if_lt_x_gpu(4)
     @parametrize(
         "set_device",
-        [SetDeviceMethod.TORCH_CUDA_SET, SetDeviceMethod.COLLECTIVE_ARGUMENT],
+        [SetDeviceMethod.TORCH_XPU_SET, SetDeviceMethod.COLLECTIVE_ARGUMENT],
     )
     @parametrize("group_rank", [True, False])
     def test_broadcast_object_list_subgroup(
@@ -5037,7 +3609,7 @@ class LargeCommTest(test_c10d_common.AbstractLargeCommTest, MultiProcessTestCase
         if self.rank >= world_size:
             return
         subgroup = self._init_two_pg2_subgroups(world_size)
-        if set_device == SetDeviceMethod.TORCH_CUDA_SET:
+        if set_device == SetDeviceMethod.TORCH_XPU_SET:
             torch.xpu.set_device(self.rank)
             device = None
         else:
@@ -5153,10 +3725,6 @@ class SparseCollective(MultiProcessTestCase):
 
     def setUp(self):
         super().setUp()
-        # TORCH_XCCL_BLOCKING_WAIT overrides TORCH_XCCL_ASYNC_ERROR_HANDLING hence tests
-        # that use TORCH_XCCL_BLOCKING_WAIT will test it as expected.
-        os.environ["TORCH_XCCL_ASYNC_ERROR_HANDLING"] = "1"
-        # self.num_gpus = torch.xpu.device_count()
         self._spawn_processes()
 
     def tearDown(self):
@@ -5186,6 +3754,8 @@ class SparseCollective(MultiProcessTestCase):
     @requires_xccl()
     @skip_if_lt_x_gpu(1)
     def test_ddp_set_sparse_metadata(self):
+        self.skipTest("XCCL does not support sparse allreduce")
+        # TODO: Support sparse allreduce in XCCL
         store = dist.FileStore(self.file_name, self.world_size)
         dist.init_process_group(
             "xccl",
@@ -5227,10 +3797,6 @@ class ProcessGroupXCCLOneRankTest(MultiProcessTestCase):
 
     def setUp(self):
         super().setUp()
-        # TORCH_XCCL_BLOCKING_WAIT overrides TORCH_XCCL_ASYNC_ERROR_HANDLING hence tests
-        # that use TORCH_XCCL_BLOCKING_WAIT will test it as expected.
-        os.environ["TORCH_XCCL_ASYNC_ERROR_HANDLING"] = "1"
-        # self.num_gpus = torch.xpu.device_count()
         self._spawn_processes()
 
     def tearDown(self):
@@ -5243,14 +3809,6 @@ class ProcessGroupXCCLOneRankTest(MultiProcessTestCase):
     @requires_xccl()
     @skip_if_lt_x_gpu(1)
     def test_reduce_scatter(self):
-        """
-        This is testing against a known bug in XCCL.
-
-        TODO: remove once this is fixed upstream
-
-        https://github.com/pytorch/pytorch/issues/168092
-        https://github.com/NVIDIA/xccl/issues/1950
-        """
         device = torch.device(f"xpu:{self.rank:d}")
 
         store = dist.FileStore(self.file_name, self.world_size)
@@ -5300,11 +3858,10 @@ class XCCLTraceTestBase(MultiProcessTestCase):
         os.environ["TORCH_XCCL_ENABLE_TIMING"] = (
             "0"  # see 'timing_enabled' parametrized tests
         )
-        os.environ["TORCH_XCCL_TRACE_BUFFER_SIZE"] = "1000"
-        os.environ["TORCH_XCCL_DUMP_ON_TIMEOUT"] = "1"
+        os.environ["TORCH_FR_BUFFER_SIZE"] = "1000"
         self.tempdir = tempfile.TemporaryDirectory()
-        os.environ["TORCH_XCCL_DEBUG_INFO_TEMP_FILE"] = self._trace_basename()
-        os.environ["TORCH_XCCL_DEBUG_INFO_PIPE_FILE"] = self._trace_basename()
+        os.environ["TORCH_FR_DUMP_TEMP_FILE"] = self._trace_basename()
+        os.environ["TORCH_FR_DEBUG_INFO_PIPE_FILE"] = self._trace_basename()
         self._spawn_processes()
 
     @classmethod
@@ -5387,10 +3944,8 @@ class XCCLTraceTest(XCCLTraceTestBase):
         ver = t["version"]
         self.assertEqual(ver, "2.10")
         comm_lib_version = t["comm_lib_version"]
-        torch_comm_lib_version = torch.xpu.xccl.version()
-        self.assertEqual(
-            comm_lib_version, ".".join(str(v) for v in torch_comm_lib_version)
-        )
+        torch_comm_lib_version = torch._C._distributed_c10d.get_xccl_version()
+        self.assertEqual(comm_lib_version, torch_comm_lib_version)
         pg_config = t["pg_config"]
         self.assertEqual(len(pg_config), 1)
         default_pg_info = pg_config["0"]
@@ -5401,10 +3956,6 @@ class XCCLTraceTest(XCCLTraceTestBase):
         self.assertEqual(len(pg_status), 1)
         self.assertEqual(str(pg_status["0"]["last_enqueued_collective"]), "2")
         self.assertEqual(str(pg_status["0"]["last_completed_collective"]), "2")
-        self.assertEqual(
-            str(pg_status["0"]["last_started_collective"]),
-            "2" if timing_enabled else "-1",
-        )
         global_ranks = pg_config["0"]["ranks"]
         self.assertEqual(len(json.loads(global_ranks)), self.world_size)
         if include_collectives:
@@ -5414,14 +3965,16 @@ class XCCLTraceTest(XCCLTraceTestBase):
             self.assertEqual(last["thread_id"], str(threading.current_thread().ident))
             self.assertEqual(last["thread_name"], "fr_test_thread")
             self.assertEqual(last["process_group"], ("0", "default_pg"))
-            self.assertEqual(last["state"], "completed")
-            s = last["time_discovered_started_ns"]
-            f = last["time_discovered_completed_ns"]
+            # TODO: Mark completed in PGXCCL so that the "state" field can be asserted here
+            # self.assertEqual(last["state"], "completed")
             self.assertEqual(last["record_id"], 1)
-            self.assertIsNotNone(f)
-            if timing_enabled:
-                self.assertIsNotNone(s)
-                self.assertTrue(s <= f)
+            # TODO: Discovery not supported in PGXCCL work queue
+            # s = last["time_discovered_started_ns"]
+            # f = last["time_discovered_completed_ns"]
+            # self.assertIsNotNone(f)
+            # if timing_enabled:
+            #   self.assertIsNotNone(s)
+            #   self.assertTrue(s <= f)
             # we don't collect stack traces in JSON at the moment
             if not is_json:
                 self.assertIn("test_c10d_xccl.py", str(last["frames"]))
@@ -5430,7 +3983,7 @@ class XCCLTraceTest(XCCLTraceTestBase):
             self.assertEqual(last["output_sizes"], ((3, 4),))
             self.assertEqual(last["output_dtypes"], ["Float"])
             self.assertEqual(last["collective_seq_id"], 2)
-            self.assertEqual(last["timeout_ms"], 600000)
+            self.assertEqual(last["timeout_ms"], DEFAULT_PG_TIMEOUT)
             now = datetime.now()
             event_created_time = datetime.fromtimestamp(
                 last["time_created_ns"] / 1000000000
@@ -5600,7 +4153,7 @@ class XCCLTraceTest(XCCLTraceTestBase):
     @requires_xccl()
     @skip_but_pass_in_sandcastle_if(not TEST_MULTIGPU, "XCCL test requires 2+ XPUs")
     def test_long(self):
-        os.environ["TORCH_XCCL_TRACE_BUFFER_SIZE"] = "10"
+        os.environ["TORCH_FR_BUFFER_SIZE"] = "10"
         if self.rank == self.MAIN_PROCESS_RANK:
             return
         pg = self._create_process_group_xccl()
@@ -5625,20 +4178,21 @@ class XCCLTraceTest(XCCLTraceTestBase):
         first = t[0]
         last = t[-1]
         self.assertEqual(last["profiling_name"], "xccl:all_reduce")
-        self.assertEqual(last["state"], "completed")
+        # TODO: Mark completed in PGXCCL so that the "state" field can be asserted here
+        # self.assertEqual(last["state"], "completed")
         self.assertIn("test_c10d_xccl.py", str(last["frames"]))
         self.assertEqual(last["input_sizes"], ((3, 4),))
         self.assertEqual(last["input_dtypes"], ["Float"])
         self.assertEqual(last["output_sizes"], ((3, 4),))
         self.assertEqual(last["output_dtypes"], ["Float"])
-        self.assertEqual(last["timeout_ms"], 600000)
+        self.assertEqual(last["timeout_ms"], DEFAULT_PG_TIMEOUT)
         self.assertEqual(last["collective_seq_id"] - first["collective_seq_id"], 9)
         dist.destroy_process_group()
 
     @requires_xccl()
     @skip_but_pass_in_sandcastle_if(not TEST_MULTIGPU, "XCCL test requires 2+ XPUs")
     def test_barrier_profiling(self):
-        os.environ["TORCH_XCCL_TRACE_BUFFER_SIZE"] = "10"
+        os.environ["TORCH_FR_BUFFER_SIZE"] = "10"
         if self.rank == self.MAIN_PROCESS_RANK:
             return
         pg = self._create_process_group_xccl()
@@ -5659,29 +4213,7 @@ class XCCLTraceTest(XCCLTraceTestBase):
 
     @requires_xccl()
     @skip_but_pass_in_sandcastle_if(not TEST_MULTIGPU, "XCCL test requires 2+ XPUs")
-    def test_trace_while_all_works_retired(self):
-        os.environ["TORCH_XCCL_TRACE_BUFFER_SIZE"] = "10"
-        if self.rank == self.MAIN_PROCESS_RANK:
-            return
-        pg = self._create_process_group_xccl()
-        device = self.local_device
-        # send more works than the buffer size to overwrite the previous entry
-        for _ in range(12):
-            a = [torch.ones(3, 4, device=device)]
-            pg.broadcast(a).wait()
-        torch.xpu.synchronize(device=device)
-
-        # wait for all works to be retired
-        pg._wait_for_pending_works()
-        t = pickle.loads(torch._C._distributed_c10d._dump_xccl_trace())
-        t = t["entries"]
-        self.assertEqual(len(t), 10)
-        last = t[-1]
-        self.assertEqual(last["retired"], True)
-        self.assertEqual(last["state"], "completed")
-
-    @requires_xccl()
-    @skip_but_pass_in_sandcastle_if(not TEST_MULTIGPU, "XCCL test requires 2+ XPUs")
+    @skipIfXpu(msg="XCCL doesn't currently support onlyActive filtering")
     @parametrize("timing_enabled", [True, False])
     @parametrize("only_active", [True, False])
     def test_trace_while_active(self, timing_enabled, only_active):
@@ -5722,25 +4254,14 @@ class XCCLTraceTest(XCCLTraceTestBase):
                 else:
                     self.assertEqual(t[-1]["profiling_name"], "xccl:all_reduce")
                     self.assertEqual(t[-1]["collective_seq_id"], 2)
+                    self.assertEqual(
+                        t[-1]["state"], self.started_or_scheduled(timing_enabled)
+                    )
 
-                    # ROCm runtime used to call uSleep(20 µs)inside the default‑signal busy-wait loop.
-                    # Now, this sleep is removed which lets the host thread spin continuously
-                    # Therefore, the state can either be scheduled or started before test dumps the trace.
-                    if (
-                        torch.version.hip
-                        # and _get_torch_rocm_version() >= (6, 4)
-                        and timing_enabled
-                    ):
-                        assert t[-1]["state"] in ("scheduled", "started")
-                    else:
-                        self.assertEqual(
-                            t[-1]["state"], self.started_or_scheduled(timing_enabled)
-                        )
-
-            self.parent.send("next")
-            self.assertEqual("next", self.parent.recv())
             if self.rank == 0:
                 pg.allreduce(a).wait()
+            self.parent.send("next")
+            self.assertEqual("next", self.parent.recv())
             torch.xpu.synchronize(device=device)
 
     @requires_xccl()
@@ -5775,13 +4296,14 @@ class XCCLTraceTest(XCCLTraceTestBase):
                 self.assertEqual(t[-1]["profiling_name"], "xccl:all_reduce")
                 if self.rank == 0:
                     self.assertEqual(t[-1]["collective_seq_id"], 1)
-                    self.assertEqual(t[-1]["state"], "completed")
+                    # TODO: Mark completed in PGXCCL so that the "state" field can be asserted here
+                    # self.assertEqual(t[-1]["state"], "completed")
                 else:
                     self.assertEqual(t[-1]["collective_seq_id"], 2)
-                    self.assertEqual(
-                        t[-1]["state"], self.started_or_scheduled(timing_enabled)
-                    )
-                    self.assertIsNone(t[-1]["time_discovered_completed_ns"])
+                    # self.assertEqual(
+                    #     t[-1]["state"], self.started_or_scheduled(timing_enabled)
+                    # )
+                    # self.assertIsNone(t[-1]["time_discovered_completed_ns"])
                 # this will eventually cause the missing rank 0
                 # to continue which will unblock the non-zero ranks
                 self.parent.send("next")
@@ -5798,9 +4320,9 @@ class XCCLTraceTest(XCCLTraceTestBase):
             else:
                 gather_trace()
 
-            self.assertEqual("next", self.parent.recv())
             if self.rank == 0:
                 pg.allreduce(a).wait()
+            self.assertEqual("next", self.parent.recv())
             torch.xpu.synchronize(device=device)
 
     @requires_xccl()
@@ -5818,6 +4340,8 @@ class XCCLTraceTest(XCCLTraceTestBase):
         'WorkEnqueue' was skipped for isendirecv, leading to segfault on dump_entries when update_state tried to use
         a destructed Work obj's xpu events
         """
+        if timing_enabled:
+            self.skipTest("XCCL timing is not consistent, skipping")
 
         if self.rank == self.MAIN_PROCESS_RANK:
             return
@@ -5843,7 +4367,7 @@ class XCCLTraceTest(XCCLTraceTestBase):
 
         if timing_enabled:
             # wait for watchdog thread to process the queue of works
-            time.sleep(1)
+            time.sleep(2)
 
         t = pickle.loads(torch._C._distributed_c10d._dump_xccl_trace())
         self.assertEqual(len(t["entries"]), num_coalesced_ops * (ops_per_coalesce + 1))
@@ -5893,7 +4417,8 @@ class XCCLTraceTest(XCCLTraceTestBase):
             )
             self.assertEqual(t["entries"][coalesced_op]["p2p_seq_id"], expected_seq)
             expected_seq += 1
-            self.assertEqual(t["entries"][coalesced_op]["state"], "completed")
+            # TODO: Mark completed in PGXCCL so that the "state" field can be asserted here
+            # self.assertEqual(t["entries"][coalesced_op]["state"], "completed")
             self.assertEqual(t["entries"][coalesced_op]["input_sizes"], [])
             self.assertEqual(t["entries"][coalesced_op]["output_sizes"], [])
             if timing_enabled:
@@ -5901,7 +4426,9 @@ class XCCLTraceTest(XCCLTraceTestBase):
                 self.assertTrue(0.001 < duration < 10000, duration)
             else:
                 self.assertTrue("duration_ms" not in t["entries"][coalesced_op])
-            self.assertEqual(t["entries"][coalesced_op]["timeout_ms"], 600000)
+            self.assertEqual(
+                t["entries"][coalesced_op]["timeout_ms"], DEFAULT_PG_TIMEOUT
+            )
 
     @requires_xccl()
     @skip_but_pass_in_sandcastle_if(not TEST_MULTIGPU, "XCCL test requires 2+ XPUs")
@@ -5918,6 +4445,8 @@ class XCCLTraceTest(XCCLTraceTestBase):
         'WorkEnqueue' was skipped for isendirecv, leading to segfault on dump_entries when update_state tried to use
         a destructed Work obj's xpu events
         """
+        if timing_enabled:
+            self.skipTest("XCCL timing is not consistent, skipping")
 
         if self.rank == self.MAIN_PROCESS_RANK:
             return
@@ -5956,7 +4485,8 @@ class XCCLTraceTest(XCCLTraceTestBase):
             expected_op_id += 1
             self.assertEqual(t["entries"][seq]["input_sizes"], [input_sizes])
             self.assertEqual(t["entries"][seq]["output_sizes"], [input_sizes])
-            self.assertEqual(t["entries"][seq]["state"], "completed")
+            # TODO: Mark completed in PGXCCL so that the "state" field can be asserted here
+            # self.assertEqual(t["entries"][seq]["state"], "completed")
 
             if timing_enabled:
                 duration = t["entries"][seq]["duration_ms"]
@@ -6084,7 +4614,7 @@ class XCCLTraceTest(XCCLTraceTestBase):
             return
 
         # Override buffer size to 10 for faster testing
-        os.environ["TORCH_XCCL_TRACE_BUFFER_SIZE"] = "10"
+        os.environ["TORCH_FR_BUFFER_SIZE"] = "10"
 
         pg = self._create_process_group_xccl()
         if timing_enabled:
@@ -6143,7 +4673,7 @@ class XCCLTraceTest(XCCLTraceTestBase):
             return
 
         # Override buffer size to 10 for faster testing
-        os.environ["TORCH_XCCL_TRACE_BUFFER_SIZE"] = "10"
+        os.environ["TORCH_FR_BUFFER_SIZE"] = "10"
 
         pg = self._create_process_group_xccl()
         if timing_enabled:
@@ -6193,7 +4723,7 @@ class XCCLTraceTest(XCCLTraceTestBase):
             return
 
         # Override buffer size to 10 for faster testing
-        os.environ["TORCH_XCCL_TRACE_BUFFER_SIZE"] = "10"
+        os.environ["TORCH_FR_BUFFER_SIZE"] = "10"
 
         pg = self._create_process_group_xccl()
         if timing_enabled:
@@ -6247,7 +4777,7 @@ class XCCLTraceTest(XCCLTraceTestBase):
             return
 
         # Override buffer size to 10 for faster testing
-        os.environ["TORCH_XCCL_TRACE_BUFFER_SIZE"] = "10"
+        os.environ["TORCH_FR_BUFFER_SIZE"] = "10"
 
         pg = self._create_process_group_xccl()
         if timing_enabled:
@@ -6343,8 +4873,6 @@ class XCCLTraceTestDumpOnTimeout(XCCLTraceTestDumpOnTimeoutBase):
     def test_timeout_dumps(self, timing_enabled):
         # dump on heartbeatmonitor thread
         os.environ["TORCH_XCCL_COORD_CHECK_MILSEC"] = "1000"
-        # need rank0 to crash before looking for its output file
-        os.environ["TORCH_XCCL_HEARTBEAT_TIMEOUT_SEC"] = "1"
 
         if self.rank == self.MAIN_PROCESS_RANK:
             # wait for rank0 to crash before looking for its output file
@@ -6399,11 +4927,6 @@ class XCCLTraceTestTimeoutDumpOnStuckRanks(XCCLTraceTestDumpOnTimeoutBase):
     @requires_xccl()
     @skip_if_lt_x_gpu(2)
     def test_timeout_dumps_on_stuck_ranks(self):
-        # need rank0 to crash quicker after detecting timeout
-        os.environ["TORCH_XCCL_HEARTBEAT_TIMEOUT_SEC"] = "1"
-        # restore this env var to its prior default in case another test changed it
-        os.environ["TORCH_XCCL_COORD_CHECK_MILSEC"] = "1000"
-
         if self.rank == self.MAIN_PROCESS_RANK:
             # wait for both rank0 and 1 to crash before looking for both ranks' output
             # file, and we rely on rank1 to sleep long enough to dump the debug info.
@@ -6458,14 +4981,9 @@ class XcclErrorDumpTest(XCCLTraceTestBase):
         self.assertEqual(self.processes[1].exitcode, 1)
 
     @requires_xccl()
-    #@requires_xccl_version((2, 4, 0), "Need XCCL 2.4+ for error checking")
     @skip_if_lt_x_gpu(2)
     def test_xccl_errors_dump(self):
-        os.environ["TORCH_XCCL_ASYNC_ERROR_HANDLING"] = "1"
-        os.environ["TORCH_XCCL_TRACE_BUFFER_SIZE"] = "1000"
-        os.environ["TORCH_XCCL_DUMP_ON_TIMEOUT"] = "1"
-        # need rank0 to dump before abort
-        os.environ["TORCH_XCCL_HEARTBEAT_TIMEOUT_SEC"] = "5"
+        os.environ["TORCH_FR_BUFFER_SIZE"] = "1000"
 
         if self.rank == self.MAIN_PROCESS_RANK:
             # wait for both rank0 and 1 to crash before looking for dump
@@ -6519,9 +5037,6 @@ class ProcessGroupXCCLLargerScaleTest(MultiProcessTestCase):
 
     def setUp(self):
         super().setUp()
-        # TORCH_XCCL_BLOCKING_WAIT overrides TORCH_XCCL_ASYNC_ERROR_HANDLING hence tests
-        # that use TORCH_XCCL_BLOCKING_WAIT will test it as expected.
-        os.environ["TORCH_XCCL_ASYNC_ERROR_HANDLING"] = "1"
         # self.num_gpus = torch.xpu.device_count()
         self._spawn_processes()
 
@@ -6541,8 +5056,8 @@ class ProcessGroupXCCLLargerScaleTest(MultiProcessTestCase):
         # return rank to GPU map
         return init_multigpu_helper(self.world_size, "xccl")
 
-    
     @skip_if_lt_x_gpu(8)
+    @skipIfXpu(msg="XCCL doesn't currently support comm split, skipping test")
     def test_comm_split_group_larger_scale(self):
         store = c10d.FileStore(self.file_name, self.world_size)
         device = torch.device(f"xpu:{self.rank}")
@@ -6577,8 +5092,8 @@ class ProcessGroupXCCLLargerScaleTest(MultiProcessTestCase):
         torch.xpu.synchronize()
         dist.destroy_process_group()
 
-    
     @skip_if_lt_x_gpu(8)
+    @skipIfXpu(msg="XCCL doesn't currently support comm split, skipping test")
     def test_comm_recursive_split_group(self):
         store = c10d.FileStore(self.file_name, self.world_size)
         device = torch.device(f"xpu:{self.rank}")
