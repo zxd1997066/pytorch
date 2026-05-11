@@ -2168,7 +2168,7 @@ class TestProfileGuidedEstimatorIntegration(InductorTestCase):
 
         store = FakeStore()
         dist.init_process_group(backend="fake", rank=0, world_size=2, store=store)
-        cls.device = "cuda"
+        cls.device = "xpu" if TEST_XPU else "cuda"
 
     @classmethod
     def tearDownClass(cls):
@@ -2254,7 +2254,7 @@ class TestPreBucketingFsdpCollectives(InductorTestCase):
 
         store = FakeStore()
         dist.init_process_group(backend="fake", rank=0, world_size=64, store=store)
-        cls.device = "cuda"
+        cls.device = "xpu" if TEST_XPU else "cuda"
 
     @classmethod
     def tearDownClass(cls):
