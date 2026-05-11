@@ -446,10 +446,6 @@ class _AllGatherBase(Function):
             gx = torch.empty(
                 out_size, device=grad_output.device, dtype=grad_output.dtype
             )
-        out_size[0] = out_size[0] // dist.get_world_size(group=ctx.group)
-        gx = torch.empty(
-            out_size, device=grad_output.device, dtype=grad_output.dtype
-        )
         dist._reduce_scatter_base(gx, grad_output, ReduceOp.SUM, ctx.group)
         return (None, gx, None)
 
