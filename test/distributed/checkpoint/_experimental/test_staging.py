@@ -1,6 +1,7 @@
 # Owner(s): ["oncall: distributed checkpointing"]
 
 from concurrent.futures import Future
+from unittest import skipIf
 
 import torch
 import unittest
@@ -8,7 +9,8 @@ from torch.distributed.checkpoint._experimental.staging import (
     CheckpointStagerConfig,
     DefaultStager,
 )
-from torch.testing._internal.common_utils import requires_cuda, run_tests, TestCase
+from torch.testing._internal.common_device_type import instantiate_device_type_tests
+from torch.testing._internal.common_utils import run_tests, TEST_ACCELERATOR, TestCase
 
 requires_gpu = unittest.skipUnless(
     torch.cuda.is_available() or torch.xpu.is_available(), "requires cuda or xpu"
@@ -26,7 +28,7 @@ class TestDefaultStager(TestCase):
             "nested": {"inner_tensor": torch.ones(2, 2), "inner_value": 42},
         }
 
-    @requires_gpu
+    @skipIf(not TEST_ACCELERATOR, reason="requires GPU")
     def test_sync_staging(self) -> None:
         """Test synchronous staging."""
         options = CheckpointStagerConfig(use_async_staging=False)
@@ -49,7 +51,7 @@ class TestDefaultStager(TestCase):
         # Clean up
         stager.close()
 
-    @requires_gpu
+    @skipIf(not TEST_ACCELERATOR, reason="requires GPU")
     def test_async_staging(self) -> None:
         """Test asynchronous staging."""
         options = CheckpointStagerConfig(use_async_staging=True)
@@ -145,7 +147,7 @@ class TestDefaultStager(TestCase):
 
                 stager.close()
 
-    @requires_gpu
+    @skipIf(not TEST_ACCELERATOR, reason="requires GPU")
     def test_cuda_tensors_staging(self) -> None:
         """Test staging with CUDA tensors."""
         # Create state dict with CUDA tensors
@@ -173,7 +175,7 @@ class TestDefaultStager(TestCase):
 
         stager.close()
 
-    @requires_gpu
+    @skipIf(not TEST_ACCELERATOR, reason="requires GPU")
     def test_resource_cleanup(self) -> None:
         """Test that resources are properly cleaned up."""
         options = CheckpointStagerConfig(use_async_staging=False)
@@ -217,6 +219,8 @@ class TestDefaultStager(TestCase):
 
         stager.close()
 
+
+instantiate_device_type_tests(TestDefaultStager, globals(), allow_xpu=True)
 
 if __name__ == "__main__":
     run_tests()

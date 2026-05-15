@@ -7,7 +7,10 @@ import torch.optim as optim
 from torch.distributed._shard import shard_parameter, sharded_tensor
 from torch.distributed._shard.sharded_optim import ShardedOptimizer
 from torch.distributed._shard.sharding_spec import ChunkShardingSpec
-from torch.testing._internal.common_distributed import requires_accelerator_dist_backend, skip_if_lt_x_gpu
+from torch.testing._internal.common_distributed import (
+    requires_accelerator_dist_backend,
+    skip_if_lt_x_gpu,
+)
 from torch.testing._internal.common_utils import run_tests
 from torch.testing._internal.distributed._shard.sharded_tensor import (
     ShardedTensorTestBase,
@@ -18,6 +21,12 @@ device_type = (
     acc.type if (acc := torch.accelerator.current_accelerator(True)) else "cpu"
 )
 backend = torch.distributed.get_default_backend_for_device(device_type)
+
+device_type = (
+    acc.type if (acc := torch.accelerator.current_accelerator(True)) else "cpu"
+)
+backend = torch.distributed.get_default_backend_for_device(device_type)
+
 
 class MyShardedModel(torch.nn.Module):
     def __init__(self, spec=None, group=None):
