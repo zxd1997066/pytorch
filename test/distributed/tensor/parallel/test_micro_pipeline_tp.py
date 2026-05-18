@@ -257,8 +257,8 @@ class MicroPipelineTPTest(TestCase):
         # batch=1: after all_gather, shape[0] == world_size == group_size,
         # so the view optimization in _maybe_view_chunk_cat applies.
         # Shard is [1, 32, 32], all_gather gives [2, 32, 32], view to [1, 64, 32].
-        A_shard = torch.rand(1, 32, 32, device="cuda")
-        B = torch.rand(32, 16, device="cuda")
+        A_shard = torch.rand(1, 32, 32, device=self.device_type)
+        B = torch.rand(32, 16, device=self.device_type)
 
         with _test_mode():
             compiled = torch.compile(func)
