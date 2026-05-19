@@ -86,6 +86,7 @@ from torch.testing._internal.common_distributed import (
     with_nccl_blocking_wait,
 )
 from torch.testing._internal.common_utils import (
+    DeterministicGuard,
     FILE_SCHEMA,
     instantiate_parametrized_tests,
     IS_FBCODE,
@@ -4916,8 +4917,11 @@ class DistributedTest:
                 ):
                     self.assertEqual(p1, p2, "Parameters not initially equal!")
                 # Enable determinism in cudnn operators
-                with torch.backends.cudnn.flags(
-                    enabled=True, deterministic=True, benchmark=False
+                with (
+                    torch.backends.cudnn.flags(
+                        enabled=True, deterministic=True, benchmark=False
+                    ),
+                    DeterministicGuard(True),
                 ):
                     for i in range(8):
                         inp = (
