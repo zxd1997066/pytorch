@@ -96,7 +96,7 @@ def evaluate_platform_supports_efficient_attention():
     if TEST_CUDA:
         return True
     if TEST_XPU:
-        return True
+        return False
     return False
 
 def evaluate_platform_supports_cudnn_attention():
