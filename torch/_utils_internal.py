@@ -225,12 +225,10 @@ def max_clock_rate():
     """
     unit: MHz
     """
-    if not torch.version.hip and not torch.xpu.is_available():
+    if not torch.version.hip:
         from triton.testing import nvsmi
 
         return nvsmi(["clocks.max.sm"])[0]
-    elif torch.xpu.is_available():
-        return 1100
     else:
         # Manually set max-clock speeds on ROCm until equivalent nvmsi
         # functionality in triton.testing or via pyamdsmi enablement. Required
