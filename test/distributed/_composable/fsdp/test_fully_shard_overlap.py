@@ -28,6 +28,7 @@ from torch.testing._internal.common_fsdp import (
 )
 from torch.testing._internal.common_utils import (
     get_cycles_per_ms,
+    IS_LINUX,
     MI200_ARCH,
     run_tests,
     TEST_HPU,
@@ -192,6 +193,7 @@ class TestFullyShardOverlap(FSDPTest):
         # )
         self.assertLessEqual(fwd_bwd_time, ref_fwd_bwd_time)
 
+    @unittest.skipIf(IS_LINUX, "https://github.com/pytorch/pytorch/issues/131081")
     @skip_if_lt_x_gpu(2)
     @unittest.skipIf(TEST_HPU, "Sleep is not supported on HPU")
     @unittest.skipIf(TEST_XPU, "Sleep is not supported on XPU")

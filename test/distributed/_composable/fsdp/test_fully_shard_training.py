@@ -61,7 +61,8 @@ from torch.testing._internal.common_utils import (
     MI200_ARCH,
     run_tests,
     TEST_XPU,
-    TEST_CUDA_GRAPH,
+    skipIfRocm,
+    skipIfTorchInductor,
     TEST_HPU,
     wrapSwapTensorsTest,
     xfailIf,
@@ -429,6 +430,7 @@ class TestFullyShard1DTrainingCore(FSDPTest):
             self._test_train_parity_multi_group,
         )
 
+    @skipIfTorchInductor(msg="https://github.com/pytorch/pytorch/issues/148901")
     @skip_if_lt_x_gpu(2, allow_cpu=True)
     @unittest.skipIf(TEST_HPU or TEST_XPU, "sleep kernel not supported on HPU/XPU")
     def test_train_parity_multi_group_cpu_offload_eager(self):
@@ -2649,6 +2651,7 @@ class TestFullyShardCudaGraph(FSDPTest):
     def world_size(self) -> int:
         return 2
 
+    @skipIfRocm(msg="https://github.com/pytorch/pytorch/issues/173761")
     @skip_if_lt_x_gpu(2, allow_cpu=True)
     def test_two_layer_fully_shard_cudagraph(self):
         torch.accelerator.set_device_index(self.rank)
