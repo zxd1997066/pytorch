@@ -175,7 +175,7 @@ def fork_rng(
             argument for easily disabling the context manager without having
             to delete it and unindent your Python code under it.
         device_type (str): device type str, default is ``None``, in which case the type
-            is inferred from ``devices`` if provided (using the first entry), falling back
+            is taken from :func:`torch.accelerator.current_accelerator`, falling back
             to ``"cuda"`` when the type cannot be determined. As for supported devices,
             see details in :ref:`accelerator<accelerators>`
     """
@@ -197,8 +197,11 @@ def fork_rng(
         yield
         return
 
-    device_type = torch.device(device_type).type
-    device_mod = getattr(torch, device_type, None)
+    acc = torch.accelerator.current_accelerator()
+    # Default to cuda instead of CPU since CPU rng is always forked
+    device_type = device_type or (acc.type if acc is not None else "cuda")
+
+    device_mod = torch.get_device_module(device_type)
     if device_mod is None:
         raise RuntimeError(
             f"torch has no module of `{device_type}`, you should register "

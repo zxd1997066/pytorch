@@ -142,17 +142,17 @@ _CURRENT_FULL_PRECISION_PARAM_DTYPE = None
 @contextlib.contextmanager
 def patch_reduce_scatter(new_reduce_scatter, full_precision_param_dtype):
     """
-    Patches ``dist.reduce_scatter_tensor`` with ``new_reduce_scatter`` and
+    Patches ``dist.reduce_scatter_single`` with ``new_reduce_scatter`` and
     restores upon exiting. Used for validation of mixed precision.
     """
-    orig_reduce_scatter = dist.reduce_scatter_tensor
-    dist.reduce_scatter_tensor = new_reduce_scatter
+    orig_reduce_scatter = dist.reduce_scatter_single
+    dist.reduce_scatter_single = new_reduce_scatter
     global _CURRENT_FULL_PRECISION_PARAM_DTYPE
     _CURRENT_FULL_PRECISION_PARAM_DTYPE = full_precision_param_dtype
     try:
         yield
     finally:
-        dist.reduce_scatter_tensor = orig_reduce_scatter
+        dist.reduce_scatter_single = orig_reduce_scatter
         _CURRENT_FULL_PRECISION_PARAM_DTYPE = None
 
 
@@ -403,7 +403,7 @@ class TestFSDPMixedPrecision(FSDPTest):
                 model.to(device=device_type)
 
             # Patch reduce_scatter to add validation for mixed precision types.
-            orig_reduce_scatter = dist.reduce_scatter_tensor
+            orig_reduce_scatter = dist.reduce_scatter_single
             test_reduce_scatter = partial(
                 self._reduce_scatter_validate_mp,
                 orig_reduce_scatter,
@@ -572,7 +572,7 @@ class TestFSDPMixedPrecisionSharded(TestFSDPMixedPrecision):
         # Basic test to ensure int inputs are not casted which would break
         # modules such as embedding tables.
         param_dtype = mp_config.param_dtype or torch.float32
-        orig_reduce_scatter = dist.reduce_scatter_tensor
+        orig_reduce_scatter = dist.reduce_scatter_single
         test_reduce_scatter = partial(
             self._reduce_scatter_validate_mp,
             orig_reduce_scatter,
@@ -931,7 +931,7 @@ class TestFSDPMixedPrecisionSharded(TestFSDPMixedPrecision):
                 {"mixed_precision": mp_config},
             )
             # Patch reduce_scatter to add validation for mixed precision types.
-            orig_reduce_scatter = dist.reduce_scatter_tensor
+            orig_reduce_scatter = dist.reduce_scatter_single
             test_reduce_scatter = partial(
                 self._reduce_scatter_validate_mp,
                 orig_reduce_scatter,

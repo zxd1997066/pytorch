@@ -284,7 +284,7 @@ class ProcessGroupNCCLOpTest(MultiProcContinuousTest):
 
         for _ in range(10):
             race_tensors.pop()
-            work = pg.alltoall_base(output, input, [], [], opts)
+            work = pg.all_to_all_single(output, input, [], [], opts)
             # this triggers cudaFree
             torch.cuda.empty_cache()
             work.wait()
@@ -360,7 +360,7 @@ class ProcessGroupNCCLOpTest(MultiProcContinuousTest):
 
         for _ in range(3):
             output = inp.new_empty((self.world_size, b, t, d))
-            c10d.all_gather_into_tensor(output, inp, group=self.pg)
+            c10d.all_gather_single(output, inp, group=self.pg)
 
         expected_sum = inp.numel() * sum(range(1, self.world_size + 1))
         self.assertEqual(output.sum().item(), expected_sum)
@@ -370,7 +370,7 @@ class ProcessGroupNCCLOpTest(MultiProcContinuousTest):
 
         graph = torch.xpu.XPUGraph()
         with torch.xpu.graph(graph):
-            c10d.all_gather_into_tensor(static_output, static_inp, group=self.pg)
+            c10d.all_gather_single(static_output, static_inp, group=self.pg)
 
         graph.replay()
         torch.accelerator.synchronize()
@@ -480,7 +480,7 @@ class ProcessGroupNCCLOpTest(MultiProcContinuousTest):
         local_device_id = self.rank_to_GPU[self.rank][0]
 
         def allgather_base(output_t, input_t):
-            work = pg._allgather_base(output_t, input_t)
+            work = pg.all_gather_single(output_t, input_t)
             work.wait()
 
         # allgather_base is GPU number agnostic.
@@ -502,7 +502,7 @@ class ProcessGroupNCCLOpTest(MultiProcContinuousTest):
         local_device_id = self.rank_to_GPU[self.rank][0]
 
         def allgather_base(output_t, input_t):
-            work = pg._allgather_base(output_t, input_t)
+            work = pg.all_gather_single(output_t, input_t)
             work.wait()
 
         # anticipate an error
@@ -767,7 +767,7 @@ class ProcessGroupNCCLOpTest(MultiProcContinuousTest):
         local_device_id = self.rank_to_GPU[self.rank][0]
 
         def reduce_scatter_base(output_t, input_t):
-            work = pg._reduce_scatter_base(output_t, input_t)
+            work = pg.reduce_scatter_single(output_t, input_t)
             work.wait()
 
         # anticipate an error
@@ -937,7 +937,7 @@ class ProcessGroupNCCLOpTest(MultiProcContinuousTest):
         local_device_id = self.rank_to_GPU[self.rank][0]
 
         def reduce_scatter_base(output_t, input_t):
-            work = pg._reduce_scatter_base(output_t, input_t)
+            work = pg.reduce_scatter_single(output_t, input_t)
             work.wait()
 
         # reduce_scatter_base is GPU number agnostic.
@@ -968,7 +968,7 @@ class ProcessGroupNCCLOpTest(MultiProcContinuousTest):
         input_tensor = torch.ones(
             self.world_size * numel, dtype=torch.float32, device=device
         ).to(torch.float8_e5m2)
-        dist.reduce_scatter_tensor(output_tensor, input_tensor)
+        dist.reduce_scatter_single(output_tensor, input_tensor)
 
         expected = (
             torch.empty_like(output_tensor).fill_(self.world_size).to(torch.float8_e5m2)
@@ -987,7 +987,7 @@ class ProcessGroupNCCLOpTest(MultiProcContinuousTest):
             self.world_size * numel, dtype=torch.float32, device=device
         ).to(torch.bfloat16)
         # currently only reduce_scatter_tensor supports bfloat16
-        dist.reduce_scatter_tensor(output_tensor, input_tensor)
+        dist.reduce_scatter_single(output_tensor, input_tensor)
 
         expected = (
             torch.empty_like(output_tensor).fill_(self.world_size).to(torch.bfloat16)
@@ -1081,7 +1081,7 @@ class ProcessGroupNCCLOpTest(MultiProcContinuousTest):
         local_device_id = self.rank_to_GPU[self.rank][0]
 
         def allgather_base(output_t, input_t):
-            work = pg._allgather_base(output_t, input_t)
+            work = pg.all_gather_single(output_t, input_t)
             work.wait()
 
         # allgather_base is GPU number agnostic.
