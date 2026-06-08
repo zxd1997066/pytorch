@@ -1661,7 +1661,7 @@ class TestOverlapSchedulingFixes(InductorTestCase):
         from torch._inductor.virtualized import V
         from torch._prims.rng_prims import graphsafe_run_with_rng_state
 
-        torch.cuda.init()
+        torch.xpu.init()
 
         def func(a, b, rng_state):
             ag = torch.ops._c10d_functional.all_gather_into_tensor(a, 1, "0")
