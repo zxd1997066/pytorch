@@ -1675,7 +1675,7 @@ class TestOverlapSchedulingFixes(InductorTestCase):
         with fake_mode:
             a = torch.empty(4, 4, device=self.device)
             b = torch.empty(4, 4, device=self.device)
-            gen = torch.cuda.default_generators[0].clone_state()
+            gen = torch.xpu.default_generators[0].clone_state()
             traced = make_fx(func)(a, b, gen)
 
         def custom_runtime_estimation(
