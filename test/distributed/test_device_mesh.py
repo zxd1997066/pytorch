@@ -454,6 +454,7 @@ class DeviceMeshTestNDim(DTensorTestBase):
                     self.assertEqual(global_ranks, ranks.tolist())
 
     @with_comms
+    @skip_if_lt_x_gpu(4)
     def test_device_mesh_hash(self):
         mesh_tensor_2d = torch.arange(self.world_size).reshape(self.world_size // 2, 2)
         mesh = DeviceMesh(self.device_type, mesh_tensor_2d)
@@ -541,6 +542,7 @@ class DeviceMeshTestNDim(DTensorTestBase):
         self.assertEqual(ep_mesh, another_mesh)
 
     @with_comms
+    @skip_if_lt_x_gpu(4)
     def test_from_group_with_mesh_shape_3d(self):
         """Tests ``from_group`` when passing ``mesh_shape`` as 3D."""
         # Consider the following 3D scenario and we need to create the 2D HSDP mesh from it.
@@ -714,14 +716,17 @@ class InitDeviceMeshTest(DTensorTestBase):
         self.assertEqual(get_opts(tp_cp_mesh, 0).fake_option, 42)
 
     @with_comms
+    @skip_if_lt_x_gpu(4)
     def test_backend_override_argument_dict_with_idx_and_backend_lazy(self):
         self._test_backend_override_argument_dict_with_idx_and_backend()
 
     @with_comms(eager_init=True)
+    @skip_if_lt_x_gpu(4)
     def test_backend_override_argument_dict_with_idx_and_backend_eager(self):
         self._test_backend_override_argument_dict_with_idx_and_backend()
 
     @with_comms(backend="fake")
+    @skip_if_lt_x_gpu(4)
     def test_backend_override_argument_dict_with_name_and_options(self):
         opts = FakeProcessGroup.Options()
         opts.fake_option = 42
@@ -929,6 +934,7 @@ class TestDeviceMeshGetItem(DTensorTestBase):
             mesh_3d["cp", "dp"]
 
     @with_comms
+    @skip_if_lt_x_gpu(4)
     def test_flatten_mesh_1d(self):
         mesh_shape = (4,)
         mesh_dim_names = ("default",)
@@ -938,6 +944,7 @@ class TestDeviceMeshGetItem(DTensorTestBase):
         mesh_1d._flatten()
 
     @with_comms
+    @skip_if_lt_x_gpu(4)
     def test_flatten_mesh_3d(self):
         mesh_shape = (2, 2, self.world_size // 4)
         mesh_dim_names = ("dp", "cp", "tp")
@@ -1188,6 +1195,7 @@ class TestMeshEnv(DTensorTestBase):
         return min(8, DEVICE_COUNT)
 
     @with_comms
+    @skip_if_lt_x_gpu(4)
     def test_get_root_mesh(self):
         mesh_3d = init_device_mesh(
             self.device_type,
@@ -1489,6 +1497,7 @@ class DeviceMeshCollectiveTest(DTensorTestBase):
                 )
 
     @with_comms
+    @skip_if_lt_x_gpu(4)
     def test_broadcast_nd(self):
         mesh_tensor = torch.arange(self.world_size).reshape(2, 2, self.world_size // 4)
         mesh = DeviceMesh(self.device_type, mesh_tensor)
@@ -1507,6 +1516,7 @@ class DeviceMeshCollectiveTest(DTensorTestBase):
             self.assertEqual(cloned_local_tensor, torch.ones(3, 3) * res_num)
 
     @with_comms
+    @skip_if_lt_x_gpu(4)
     def test_scatter_nd(self):
         mesh_tensor = torch.arange(self.world_size).reshape(2, 2, self.world_size // 4)
         mesh = DeviceMesh(self.device_type, mesh_tensor)
@@ -1669,6 +1679,7 @@ class DeviceMeshCollectiveTest(DTensorTestBase):
     @dist_config.patch(use_torchcomms=True)
     @_with_torchcomm_env
     @with_comms(backend="cpu:gloo,cuda:nccl")
+    @skip_if_lt_x_gpu(4)
     def test_device_mesh_w_torchcomms(self) -> None:
         mesh_shape = (2, 2, self.world_size // 4)
         mesh_3d = init_device_mesh(
