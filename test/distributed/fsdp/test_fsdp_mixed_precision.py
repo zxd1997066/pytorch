@@ -32,6 +32,7 @@ from torch.testing._internal.common_fsdp import (
     DEVICEInitMode,
     FSDPInitMode,
     FSDPTest,
+    get_devtype,
     subtest_name,
     TransformerWithSharedParams,
 )
@@ -43,6 +44,8 @@ from torch.testing._internal.common_utils import (
     TEST_WITH_DEV_DBG_ASAN,
 )
 
+
+device_type = torch.device(get_devtype())
 
 try:
     import torchvision
@@ -250,13 +253,13 @@ class TestFSDPMixedPrecision(FSDPTest):
                 FSDP(
                     LinearMixedPrecision(
                         param_dtype, buffer_name="buffer0", run_checks=run_checks
-                    ).to(device=device_type),
+                    ).to(device_type),
                     *fsdp_args,
                     **fsdp_kwargs,
                 ),
                 LinearMixedPrecision(
                     param_dtype, buffer_name="buffer1", run_checks=run_checks
-                ).to(device=device_type),
+                ).to(device_type),
             ),
             *fsdp_args,
             **fsdp_kwargs,
@@ -265,7 +268,7 @@ class TestFSDPMixedPrecision(FSDPTest):
 
     def _get_simple_model(self, param_dtype, *fsdp_args, **fsdp_kwargs):
         model = FSDP(
-            LinearMixedPrecision(param_dtype).to(device=device_type), *fsdp_args, **fsdp_kwargs
+            LinearMixedPrecision(param_dtype).to(device_type), *fsdp_args, **fsdp_kwargs
         )
         return model
 
@@ -345,7 +348,7 @@ class TestFSDPMixedPrecision(FSDPTest):
             def forward(self, x):
                 return self.lin2(self.lin1(x))
 
-        m = MyModel().to(device=device_type)
+        m = MyModel().to(device_type)
         mp = MixedPrecision(
             param_dtype=torch.float16,
             reduce_dtype=torch.float16,
@@ -378,7 +381,7 @@ class TestFSDPMixedPrecision(FSDPTest):
         sharding_strategy,
         enable_sharded_grad_scaler,
     ):
-        torch.get_device_module(device_type).set_device(self.rank)
+        torch.accelerator.set_device_index(self.rank)
         fsdp_models = [
             self._get_simple_model(
                 param_dtype=full_precision_param_dtype,
@@ -400,7 +403,7 @@ class TestFSDPMixedPrecision(FSDPTest):
         ]
         for model in fsdp_models:
             if not cpu_offload.offload_params:
-                model.to(device=device_type)
+                model.to(device_type)
 
             # Patch reduce_scatter to add validation for mixed precision types.
             orig_reduce_scatter = dist.reduce_scatter_single
@@ -595,7 +598,7 @@ class TestFSDPMixedPrecisionSharded(TestFSDPMixedPrecision):
                 # This would fail if we casted integer module inputs such as for
                 # embedding tables.
                 output = fsdp_model(*inp)
-                loss = fsdp_model.module.get_loss(inp, output).to(device=device_type)
+                loss = fsdp_model.module.get_loss(inp, output).to(device_type)
                 self.assertEqual(loss.dtype, param_dtype)
                 fsdp_model.module.run_backward(loss)
                 optim.step()
@@ -642,7 +645,7 @@ class TestFSDPMixedPrecisionSharded(TestFSDPMixedPrecision):
         End to end test to ensure mixed precision + auto_wrap works
         for ResNet model.
         """
-        resnet_model = torchvision.models.resnet50().to(device=device_type)
+        resnet_model = torchvision.models.resnet50().to(device_type)
         resnet_model = nn.SyncBatchNorm.convert_sync_batchnorm(
             resnet_model, process_group=dist.distributed_c10d._get_default_group()
         )
@@ -708,7 +711,7 @@ class TestFSDPMixedPrecisionSharded(TestFSDPMixedPrecision):
         def never_wrap_policy(*args, **kwargs):
             return False
 
-        net = BatchNormNet().to(device=device_type)
+        net = BatchNormNet().to(device_type)
         if convert_sync_bn:
             net = nn.SyncBatchNorm.convert_sync_batchnorm(net)
         # FSDP detects that mixed precision + batchnorm will cause issues
@@ -784,7 +787,7 @@ class TestFSDPMixedPrecisionSharded(TestFSDPMixedPrecision):
             os.environ["FSDP_USE_FULL_PREC_IN_EVAL"] = (
                 "1" if use_full_prec_in_eval else "0"
             )
-            m = MyModel().to(device=device_type)
+            m = MyModel().to(device_type)
             m.a = FSDP(m.a, mixed_precision=mp_config)
             model = FSDP(m, mixed_precision=mp_config)
             model.eval()
@@ -817,7 +820,7 @@ class TestFSDPMixedPrecisionSharded(TestFSDPMixedPrecision):
             )
             inp = model.get_input(torch.device(device_type))
             output = model(*inp)
-            loss = model.get_loss(inp, output).to(device=device_type)
+            loss = model.get_loss(inp, output).to(device_type)
             # Loss should be in fp16
             self.assertEqual(torch.float16, loss.dtype)
             model.run_backward(loss)
@@ -830,7 +833,7 @@ class TestFSDPMixedPrecisionSharded(TestFSDPMixedPrecision):
             model.eval()
             inp = model.get_input(torch.device(device_type))
             output = model(*inp)
-            loss = model.get_loss(inp, output).to(device=device_type)
+            loss = model.get_loss(inp, output).to(device_type)
             expected_dtype = torch.float32 if use_full_prec_in_eval else torch.float16
             self.assertEqual(expected_dtype, loss.dtype)
 
@@ -942,7 +945,7 @@ class TestFSDPMixedPrecisionSharded(TestFSDPMixedPrecision):
             with patch_reduce_scatter(test_reduce_scatter, torch.float32):
                 inp = model.get_input(torch.device(device_type))
                 output = model(*inp)
-                loss = model.get_loss(inp, output).to(device=device_type)
+                loss = model.get_loss(inp, output).to(device_type)
                 model.run_backward(loss)
 
     @skip_if_lt_x_gpu(2)
@@ -1021,7 +1024,7 @@ class TestFSDPMixedPrecisionSharded(TestFSDPMixedPrecision):
             nn.Sequential(NonLearnableConv((1, 2, 2, 1), 64)),
             nn.Sequential(nn.Conv2d(64, 3, 3, padding=1)),
             nn.Sequential(NonLearnableConv((1, 2, 2, 1), 3)),
-        ).to(device=device_type)
+        ).to(device_type)
 
         dtype = torch.float16
         model = FSDP(
@@ -1118,7 +1121,7 @@ class TestFSDPMixedPrecisionIgnoredModules(FSDPTest):
 
     @skip_if_lt_x_gpu(1)
     def test_mixed_precision_with_ignored_module(self):
-        model = ModelWithIgnoredModule().to(device=device_type)
+        model = ModelWithIgnoredModule().to(device_type)
         float16 = MixedPrecision(param_dtype=torch.float16)
         model = FSDP(
             model,
@@ -1126,7 +1129,7 @@ class TestFSDPMixedPrecisionIgnoredModules(FSDPTest):
             mixed_precision=float16,
         )
 
-        x = torch.ones(2, 100, device=torch.accelerator.current_device_index())
+        x = torch.ones(2, 100, device=device_type)
 
         with self.assertRaisesRegex(RuntimeError, "must have the same dtype"):
             model(x).sum().backward()
@@ -1145,7 +1148,7 @@ class TestFSDPDifferentSubmodulePrecision(FSDPTest):
         model = SaveForwardInputsModel(
             forward_inputs,
             cast_forward_inputs=False,
-        ).to(device=device_type)
+        ).to(device_type)
         c1, c2 = model.c1, model.c2
         x = torch.zeros(2, 100, device=device_type)
 
@@ -1166,7 +1169,7 @@ class TestFSDPDifferentSubmodulePrecision(FSDPTest):
 
         model = SaveForwardInputsModel(
             forward_inputs=forward_inputs, cast_forward_inputs=True
-        ).to(device=device_type)
+        ).to(device_type)
         c1, c2 = model.c1, model.c2
         x = torch.zeros(2, 100, device=device_type)
 
@@ -1187,7 +1190,7 @@ class TestFSDPDifferentSubmodulePrecision(FSDPTest):
 
         model = SaveForwardInputsModel(
             forward_inputs=forward_inputs, cast_forward_inputs=False
-        ).to(device=device_type)
+        ).to(device_type)
         x = torch.zeros(2, 100, device=device_type)
 
         # float16 on one submodule and float32 on everything else
@@ -1207,7 +1210,7 @@ class TestFSDPDifferentSubmodulePrecision(FSDPTest):
 
         model = SaveForwardInputsModel(
             forward_inputs=forward_inputs, cast_forward_inputs=False
-        ).to(device=device_type)
+        ).to(device_type)
         x = torch.zeros(2, 100, device=device_type)
 
         # For submodules with different precisions, right now current design
@@ -1231,7 +1234,7 @@ class TestFSDPDifferentSubmodulePrecision(FSDPTest):
 
         model = SaveForwardInputsModel(
             forward_inputs=forward_inputs, cast_forward_inputs=False
-        ).to(device=device_type)
+        ).to(device_type)
         c1, c2 = model.c1, model.c2
         x = torch.zeros(2, 100, device=device_type)
 
@@ -1272,7 +1275,7 @@ class TestFSDPDifferentSubmodulePrecision(FSDPTest):
         forward_inputs: dict[str, torch.Tensor] = {}
 
         float16 = MixedPrecision(param_dtype=torch.float16)
-        model = ToyModel(forward_inputs).to(device=device_type)
+        model = ToyModel(forward_inputs).to(device_type)
         x = torch.zeros(2, 100, device=device_type, dtype=torch.float32)
         model.l2 = FSDP(model.l2, mixed_precision=float16)
         fsdp = FSDP(model, mixed_precision=float16)

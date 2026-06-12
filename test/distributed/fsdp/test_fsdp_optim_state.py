@@ -30,6 +30,7 @@ from torch.distributed.fsdp.fully_sharded_data_parallel import (
 from torch.distributed.optim import _NamedOptimizer
 from torch.testing._internal.common_distributed import skip_if_lt_x_gpu
 from torch.testing._internal.common_fsdp import (
+    DEVICE_TYPE,
     DEVICEInitMode,
     FSDPInitMode,
     FSDPTest,
@@ -44,6 +45,7 @@ from torch.testing._internal.common_utils import (
 
 device_type = torch.accelerator.current_accelerator().type
 
+device_type = DEVICE_TYPE
 STATE_DICT_TYPES = [StateDictType.FULL_STATE_DICT, StateDictType.SHARDED_STATE_DICT]
 
 if not dist.is_available():
@@ -1566,7 +1568,7 @@ class TestFSDPOptimState(FSDPTest):
                 # is tensor or float
                 return self.relu(self.lin2(x))
 
-        model = Model().to(device=device_type)
+        model = Model().to(device_type)
         model.lin1 = FSDP(model.lin1)
         model.lin2 = FSDP(model.lin2)
         fsdp_model = FSDP(model)
@@ -1618,7 +1620,7 @@ class TestFSDPOptimState(FSDPTest):
             def __init__(self) -> None:
                 super().__init__()
                 torch.manual_seed(0)
-                self.dense = FSDP(DenseModel().to(device=device_type), use_orig_params=True)
+                self.dense = FSDP(DenseModel().to(device_type), use_orig_params=True)
                 if dist.get_rank() == 0:
                     self.sparse0 = nn.Sequential(nn.Linear(8, 8), nn.ReLU())
                 else:
@@ -1632,7 +1634,7 @@ class TestFSDPOptimState(FSDPTest):
                 dist.all_reduce(sparse)
                 return self.dense(sparse)
 
-        models = [FakeMPModel().to(device=device_type), FakeMPModel().to(device=device_type)]
+        models = [FakeMPModel().to(device_type), FakeMPModel().to(device_type)]
         optims = [
             torch.optim.Adam(models[0].parameters(), lr=1e-2),
             _NamedOptimizer(
@@ -1668,7 +1670,7 @@ class TestFSDPOptimState(FSDPTest):
 
         # Make optim1 has a different state.
         for _ in range(5):
-            batch = torch.rand(5, 8).to(device=device_type)
+            batch = torch.rand(5, 8).to(device_type)
             loss = models[1](batch).sum()
             loss.backward()
             optims[1].step()
@@ -1698,7 +1700,7 @@ class TestFSDPOptimState(FSDPTest):
             def forward(self, x):
                 return self.net1(x)
 
-        model = FSDP(SimpleModel().to(device=device_type))
+        model = FSDP(SimpleModel().to(device_type))
         optim = torch.optim.Adam(model.parameters(), lr=1e-2)
 
         # Train one step to save original optimizer state dict and original optimizer param groups.
@@ -1751,7 +1753,7 @@ class TestFSDPOptimState(FSDPTest):
 
     @skip_if_lt_x_gpu(2)
     def test_with_empty_optimizer_state(self):
-        model = FSDP(TestDummyModel().to(device=device_type))
+        model = FSDP(TestDummyModel().to(device_type))
         optim = torch.optim.Adam(model.parameters(), lr=1e-2)
         state_dict = optim.state_dict()
         gathered_state_dict = FSDP.optim_state_dict(model, optim)
@@ -1863,7 +1865,7 @@ class TestFSDPOptimState(FSDPTest):
 
     @skip_if_lt_x_gpu(2)
     def test_interface_arguments(self):
-        model = FSDP(TestDummyModel().to(device=device_type))
+        model = FSDP(TestDummyModel().to(device_type))
         optim = torch.optim.Adam(model.parameters(), lr=1e-2)
 
         def step():
@@ -1889,7 +1891,7 @@ class TestFSDPOptimState(FSDPTest):
         for state in osd["state"].values():
             for s in state.values():
                 self.assertFalse(isinstance(s, ShardedTensor))
-                self.assertFalse(s.is_xpu) if device_type == 'xpu' else self.assertFalse(s.is_cuda)
+                self.assertFalse(s.device.type in ("cuda", "xpu"))
 
         # Test sharded state_dict without offload_to_cpu
         with FSDP.state_dict_type(
@@ -1904,8 +1906,10 @@ class TestFSDPOptimState(FSDPTest):
                     if s.dim() == 0:
                         continue
                     self.assertTrue(isinstance(s, ShardedTensor))
-                    if len(s._local_shards) > 0:
-                        self.assertTrue(s._local_shards[0].tensor.is_xpu) if device_type == 'xpu' else self.assertTrue(s._local_shards[0].tensor.is_cuda)
+                    if s._local_shards[0]:
+                        self.assertEqual(
+                            s._local_shards[0].tensor.device.type, device_type
+                        )
 
         # Test full state_dict with rank0_only
         with FSDP.state_dict_type(
@@ -1925,13 +1929,15 @@ class TestFSDPOptimState(FSDPTest):
                     for s in state.values():
                         if s.dim() == 0:
                             continue
-                        self.assertFalse(s.is_xpu) if device_type == 'xpu' else self.assertFalse(s.is_cuda)
+                        self.assertFalse(s.is_cuda or s.is_xpu)
                         self.assertFalse(isinstance(s, ShardedTensor))
 
     @skip_if_lt_x_gpu(2)
     def test_state_dict_with_none_tensor_state(self):
         def _run_test(use_orig_params, optimizer_has_tensor_state):
-            model = FSDP(TestDummyModel().to(device=device_type), use_orig_params=use_orig_params)
+            model = FSDP(
+                TestDummyModel().to(device_type), use_orig_params=use_orig_params
+            )
             optimizer_cls = (
                 torch.optim.Adam if optimizer_has_tensor_state else torch.optim.SGD
             )
@@ -1967,7 +1973,7 @@ class TestFSDPOptimState(FSDPTest):
     def test_with_no_shard(self):
         def _run_test(use_orig_params: bool) -> None:
             model = FSDP(
-                TestDummyModel().to(device=device_type),
+                TestDummyModel().to(device_type),
                 sharding_strategy=ShardingStrategy.NO_SHARD,
                 use_orig_params=use_orig_params,
             )
@@ -1994,7 +2000,7 @@ class TestFSDPOptimState(FSDPTest):
 
     @skip_if_lt_x_gpu(2)
     def test_no_grad(self):
-        model = TestDummyModel(no_grad=True).to(device=device_type)
+        model = TestDummyModel(no_grad=True).to(device_type)
         fsdp_model = FSDP(deepcopy(model), use_orig_params=True)
         fsdp_optim = torch.optim.Adam(fsdp_model.parameters(), lr=1e-2)
 

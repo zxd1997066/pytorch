@@ -3029,13 +3029,13 @@ class DistributedTest:
                 self.assertEqual(tensors[0], outputs[0])
 
         @skip_but_pass_in_sandcastle_if(
-            BACKEND != "gloo", "Only Gloo backend support sparse all reduce"
+            BACKEND != "gloo", "Only Gloo backend supports sparse all reduce"
         )
         def test_sparse_all_reduce_sum(self):
             self._test_sparse_all_reduce_sum(lambda t: t)
 
         @skip_but_pass_in_sandcastle_if(
-            BACKEND != "gloo", "Only Gloo backend support sparse all reduce"
+            BACKEND != "gloo", "Only Gloo backend supports sparse all reduce"
         )
         @skip_if_no_gpu
         def test_sparse_all_reduce_sum_cuda(self):
@@ -4192,7 +4192,7 @@ class DistributedTest:
 
         @skip_if_no_gpu
         @skip_but_pass_in_sandcastle_if(
-            BACKEND == "mpi", "MPI doesn't supports GPU barrier"
+            BACKEND == "mpi", "MPI doesn't support GPU barrier"
         )
         @skip_but_pass_in_sandcastle_if(
             BACKEND == "ucc" and IS_SANDCASTLE, "Skipped internally"
@@ -4205,7 +4205,7 @@ class DistributedTest:
         @skip_if_small_worldsize
         @skip_if_no_gpu
         @skip_but_pass_in_sandcastle_if(
-            BACKEND == "mpi", "MPI doesn't supports GPU barrier"
+            BACKEND == "mpi", "MPI doesn't support GPU barrier"
         )
         def test_barrier_group_cuda(self):
             group, group_id, rank = self._init_group_test()
@@ -4215,7 +4215,7 @@ class DistributedTest:
         @skip_if_small_worldsize
         @skip_if_no_gpu
         @skip_but_pass_in_sandcastle_if(
-            BACKEND == "mpi", "MPI doesn't supports GPU barrier"
+            BACKEND == "mpi", "MPI doesn't support GPU barrier"
         )
         def test_barrier_full_group_cuda(self):
             group, group_id, rank = self._init_full_group_test()
@@ -6282,7 +6282,7 @@ class DistributedTest:
                 self._model_step_with_zero_grad(model_DDP)
 
                 # Verify DDP logging data is sampled as expected
-                # If it has ran more than 10 iterations and this is
+                # If it has run more than 10 iterations and this is
                 # the sampled iteration for measuring run time stats,
                 # the run time stats for this idx-th iteration will not
                 # be zeros.
@@ -6612,7 +6612,7 @@ class DistributedTest:
         @skipIfNoTorchVision
         def test_SyncBatchNorm_process_group(self):
             # When adopting `convert_sync_batchnorm` to convert a `nn.modules`,
-            # it need to recursively pass the `process_group` in the module when the `SyncBatchNorm`
+            # it needs to recursively pass the `process_group` in the module when the `SyncBatchNorm`
             # is nested in a sub-module or sub-sub-module (e.g. resnet50 in torchvision.models).
 
             process_ids = 0
