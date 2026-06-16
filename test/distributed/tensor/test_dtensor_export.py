@@ -1,6 +1,7 @@
 # Owner(s): ["oncall: distributed"]
 
 import contextlib
+from unittest import skipIf
 
 import torch
 import torch.distributed as dist
@@ -26,14 +27,16 @@ from torch.nn.attention.flex_attention import (
 from torch.testing._internal.common_utils import (
     instantiate_parametrized_tests,
     parametrize,
-    requires_cuda,
     run_tests,
     TestCase,
+    TEST_ACCELERATOR,
 )
 from torch.testing._internal.distributed._tensor.common_dtensor import MLPModule
 from torch.testing._internal.distributed.fake_pg import FakeStore
 from torch.utils._pytree import register_pytree_node
 
+
+device_type = acc.type if (acc := torch.accelerator.current_accelerator()) else "cpu"
 
 class SimpleModel(torch.nn.Module):
     def __init__(self, device):
@@ -175,7 +178,7 @@ register_pytree_node(
 )
 
 
-@requires_cuda
+@skipIf(not TEST_ACCELERATOR, reason="requires GPU")
 class DTensorExportTest(TestCase):
     def tearDown(self):
         super().tearDown()
@@ -188,7 +191,7 @@ class DTensorExportTest(TestCase):
         dist.init_process_group(
             backend="fake", rank=0, world_size=self.world_size, store=store
         )
-        self.device_type = "cuda"
+        self.device_type = device_type
 
     def _run_test(self, export_fn, test_annotation=False):
         dp_degree = 2

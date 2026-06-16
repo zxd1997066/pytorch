@@ -164,9 +164,8 @@ class TestSerialization(TestCase):
         with self.assertRaisesRegex(RuntimeError, "explicit pickle_module"):
             _streaming_load(file, weights_only=True, pickle_module=pickle)
 
-    @requires_cuda
     def test_cuda(self) -> None:
-        device = torch.device("cuda:0")
+        device = torch.device("xpu:0")
 
         tensor = torch.tensor(42, dtype=torch.float, device=device)
         state_dict = {"scalar": tensor}

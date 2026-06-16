@@ -84,7 +84,7 @@ class TestHSDPCheckpoint(DTensorTestBase):
     def test_hsdp_checkpoint(self, is_even_sharded_model) -> None:
         CHECKPOINT_DIR = self.temp_dir
         simple_model = SimpleModel if is_even_sharded_model else SimpleModelUneven
-
+        device = torch.accelerator.current_accelerator()
         mesh_2d = init_device_mesh(self.device_type, (2, self.world_size // 2))
         model = FSDP(
             simple_model().to(self.device_type),
@@ -142,7 +142,7 @@ class TestHSDPCheckpoint(DTensorTestBase):
     def test_hsdp_fsdp_checkpoint_conversion(self, is_even_sharded_model) -> None:
         CHECKPOINT_DIR = self.temp_dir
         simple_model = SimpleModel if is_even_sharded_model else SimpleModelUneven
-
+        device = torch.accelerator.current_accelerator()
         # save the hsdp model state_dict
         mesh_2d = init_device_mesh(self.device_type, (2, self.world_size // 2))
         hsdp_model = FSDP(

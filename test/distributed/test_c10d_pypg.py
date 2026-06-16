@@ -4,6 +4,7 @@ import os
 import time
 import unittest
 import weakref
+from datetime import timedelta
 
 import test_c10d_common
 
@@ -15,11 +16,11 @@ from torch.distributed.distributed_c10d import _coalescing_manager, _get_default
 from torch.futures import Future
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.testing._internal.common_cuda import TEST_CUDA
+from torch.testing._internal.common_utils import run_tests, TestCase, TEST_XPU
 from torch.testing._internal.common_distributed import (
     MultiProcessTestCase,
     MultiThreadedTestCase,
 )
-from torch.testing._internal.common_utils import run_tests, TestCase
 
 
 def create_work(result):
@@ -163,6 +164,47 @@ class CoalescingProcessGroup(test_c10d_common.DummyProcessGroup):
         return create_work([])
 
 
+class ReconfigurableProcessGroup(dist.ProcessGroup):
+    """
+    A Python ProcessGroup that records reconfigure calls. Used to verify the
+    torch.distributed reconfigure helpers delegate to ProcessGroup.
+    """
+
+    def __init__(self, rank, world):
+        super().__init__(rank, world)
+        self.reconfigure_opts = None
+
+    @property
+    def supports_reconfigure(self):
+        return True
+
+    def get_reconfigure_handle(self):
+        return "handle-for-rank-0"
+
+    def reconfigure(self, opts):
+        self.reconfigure_opts = opts
+        return create_work(None)
+
+
+class WindowProcessGroup(dist.ProcessGroup):
+    """
+    A Python ProcessGroup that records new_window calls. Used to verify the
+    torch.distributed window helpers delegate to ProcessGroup.
+    """
+
+    def __init__(self, rank, world):
+        super().__init__(rank, world)
+        self.new_window_tensor = "unset"
+
+    @property
+    def supports_window(self):
+        return True
+
+    def new_window(self, tensor=None):
+        self.new_window_tensor = tensor
+        return "fake-window"
+
+
 # We cannot use parametrize as some tests are defined on the base class and use _get_process_group
 class AbstractDDPSingleRank(test_c10d_common.CommonDistributedDataParallelTest):
     def setUp(self):
@@ -294,14 +336,52 @@ class TestPyProcessGroup(TestCase):
         pg.abort()
         pg.shutdown()
 
-    @unittest.skipIf(not TEST_CUDA, "no cuda/xpu")
-    def test_block_current_stream(self) -> None:
-        torch.cuda.synchronize()
+    def test_reconfigure_delegation(self) -> None:
+        pg = ReconfigurableProcessGroup(0, 1)
 
-        stream = torch.cuda.Stream()
+        self.assertTrue(dist._supports_reconfigure(group=pg))
+        self.assertEqual(dist._get_reconfigure_handle(group=pg), "handle-for-rank-0")
+
+        timeout = timedelta(seconds=30)
+        work = dist._reconfigure(
+            uuid=7,
+            handles=["a", "b"],
+            group=pg,
+            timeout=timeout,
+            hints={"k": "v"},
+        )
+        self.assertIsNotNone(work)
+
+        # The helper builds a ReconfigureOptions and forwards it unchanged.
+        opts = pg.reconfigure_opts
+        self.assertIsNotNone(opts)
+        self.assertEqual(opts.uuid, 7)
+        self.assertEqual(opts.handles, ["a", "b"])
+        self.assertEqual(opts.timeout, timeout)
+        self.assertEqual(opts.hints, {"k": "v"})
+
+    def test_window_delegation(self) -> None:
+        pg = WindowProcessGroup(0, 1)
+
+        self.assertTrue(dist._supports_window(group=pg))
+
+        # With no tensor, new_window is called with tensor=None.
+        self.assertEqual(dist._new_window(group=pg), "fake-window")
+        self.assertIsNone(pg.new_window_tensor)
+
+        # A tensor is forwarded through to ProcessGroup.new_window.
+        t = torch.zeros(4)
+        self.assertEqual(dist._new_window(t, group=pg), "fake-window")
+        self.assertIs(pg.new_window_tensor, t)
+
+    @unittest.skipIf(not TEST_CUDA and not TEST_XPU, "no cuda/xpu")
+    def test_block_current_stream(self) -> None:
+        torch.accelerator.synchronize()
+
+        stream = torch.Stream()
         with stream:
             # nothing in queue so instantly resolves
-            event1 = torch.cuda.Event()
+            event1 = torch.Event()
             event1.record()
             time.sleep(0.1)
             self.assertTrue(event1.query())
@@ -310,7 +390,7 @@ class TestPyProcessGroup(TestCase):
             work.block_current_stream()
 
             # stream is blocked so doesn't resolve
-            event = torch.cuda.Event()
+            event = torch.Event()
             event.record()
             time.sleep(0.1)
             self.assertFalse(event.query())
@@ -321,13 +401,13 @@ class TestPyProcessGroup(TestCase):
             stream.synchronize()
             self.assertTrue(event.query())
 
-    @unittest.skipIf(not TEST_CUDA, "no cuda/xpu")
+    @unittest.skipIf(not TEST_CUDA and not TEST_XPU, "no cuda/xpu")
     def test_block_current_stream_use_after_free(self) -> None:
         """
         This tests that the CPU control tensor is not freed before the CUDA kernel executes.
         """
-        torch.cuda.synchronize()
-        stream = torch.cuda.Stream()
+        torch.accelerator.synchronize()
+        stream = torch.Stream()
         with stream:
             a = BlockWork()
             a.block_current_stream()
@@ -341,7 +421,7 @@ class TestPyProcessGroup(TestCase):
             del b
 
             # a is still blocking so this doesn't resolve
-            event = torch.cuda.Event()
+            event = torch.Event()
             event.record()
             time.sleep(0.1)
             self.assertFalse(event.query())

@@ -15,7 +15,7 @@ from typing import cast, ClassVar
 from unittest import mock, TestCase
 
 from rendezvous_backend_test import RendezvousBackendTestMixin
-
+import torch
 from torch.distributed import FileStore, TCPStore
 from torch.distributed.elastic.rendezvous import (
     RendezvousConnectionError,
@@ -27,6 +27,10 @@ from torch.distributed.elastic.rendezvous.c10d_rendezvous_backend import (
     create_backend,
 )
 from torch.distributed.elastic.utils.distributed import get_free_port
+
+device_type = (
+    acc.type if (acc := torch.accelerator.current_accelerator(True)) else "cpu"
+)
 
 
 class TCPStoreBackendTest(TestCase, RendezvousBackendTestMixin):

@@ -97,7 +97,7 @@ class DTensorPlanner(DTensorTestBase):
         submesh_replicated_dt = zeros(
             submesh_tensor_size, device_mesh=submesh, placements=[Replicate()]
         )
-
+        device = torch.accelerator.current_accelerator()
         model = MyTestModule(
             sharded_dt,
             replicated_dt,

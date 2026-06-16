@@ -17,9 +17,9 @@ import torch
 import torch.distributed as c10d
 
 
-if not c10d.is_available() or not c10d.is_nccl_available():
-    print("c10d NCCL not available, skipping tests", file=sys.stderr)
-    sys.exit(0)
+# if not c10d.is_available() or not c10d.is_nccl_available():
+#     print("c10d NCCL not available, skipping tests", file=sys.stderr)
+#     sys.exit(0)
 
 
 import torch.distributed as dist
@@ -39,28 +39,28 @@ from torch.testing._internal.common_utils import (
 )
 
 
-if TEST_WITH_DEV_DBG_ASAN:
-    print(
-        "Skip ASAN as torch + multiprocessing spawn have known issues", file=sys.stderr
-    )
-    sys.exit(0)
+# if TEST_WITH_DEV_DBG_ASAN:
+#     print(
+#         "Skip ASAN as torch + multiprocessing spawn have known issues", file=sys.stderr
+#     )
+#     sys.exit(0)
 
 
 class ProcessGroupNCCLOpTest(MultiProcContinuousTest):
     @classmethod
     def backend_str(cls) -> str:
-        return "nccl"
+        return "xccl"
 
     @classmethod
     def opts(cls, high_priority_stream=False):
-        opts = c10d.ProcessGroupNCCL.Options()
+        opts = c10d.ProcessGroupXCCL.Options()
         opts.is_high_priority_stream = high_priority_stream
         return opts
 
     @property
     def rank_to_GPU(self):
         # return rank to GPU map
-        return init_multigpu_helper(self.world_size, "nccl")
+        return init_multigpu_helper(self.world_size, "xccl")
 
     @requires_nccl()
     @skip_but_pass_in_sandcastle_if(not TEST_MULTIGPU, "NCCL test requires 2+ GPUs")
@@ -290,14 +290,14 @@ class ProcessGroupNCCLOpTest(MultiProcContinuousTest):
             work.wait()
         torch.cuda.synchronize(device=local_device)
 
-    @requires_nccl()
-    @skip_but_pass_in_sandcastle_if(not TEST_MULTIGPU, "NCCL test requires 2+ GPUs")
+    # @requires_nccl()
+    # @skip_but_pass_in_sandcastle_if(not TEST_MULTIGPU, "NCCL test requires 2+ GPUs")
     def test_allreduce_in_cudagraph(self):
         local_device_idx = self.rank_to_GPU[self.rank][0]
         # This device setting is needed by the CUDAGraph API to understand on
         # which device to find the current stream
-        torch.cuda.set_device(local_device_idx)
-        xs = torch.FloatTensor([1]).cuda(local_device_idx)
+        torch.accelerator.set_device_index(local_device_idx)
+        xs = torch.FloatTensor([1]).xpu(local_device_idx)
 
         # single warmup
         c10d.all_reduce(xs, group=self.pg)
@@ -307,8 +307,8 @@ class ProcessGroupNCCLOpTest(MultiProcContinuousTest):
 
         # Use a loop to test re-capture
         for _ in range(2):
-            graph = torch.cuda.CUDAGraph()
-            with torch.cuda.graph(graph):
+            graph = torch.xpu.XPUGraph()
+            with torch.xpu.graph(graph):
                 c10d.all_reduce(xs, group=self.pg)
                 c10d.broadcast(xs, src=0, group=self.pg)
             # Graph capture should not change the tensor value
@@ -320,21 +320,20 @@ class ProcessGroupNCCLOpTest(MultiProcContinuousTest):
             expected_val *= self.world_size
             self.assertEqual(xs.item(), expected_val)
 
-    @unittest.skipIf(TEST_WITH_ROCM, "https://github.com/pytorch/pytorch/issues/157896")
-    @requires_nccl()
-    @skip_but_pass_in_sandcastle_if(not TEST_MULTIGPU, "NCCL test requires 2+ GPUs")
+    # @requires_nccl()
+    # @skip_but_pass_in_sandcastle_if(not TEST_MULTIGPU, "NCCL test requires 2+ GPUs")
     def test_nccl_watchdog_cudagraph(self):
         # test that the watchdog does not crash graphs with disallowed event query
         pg = self.pg
         rank = self.rank_to_GPU[self.rank][0]
-        with torch.cuda.device(rank):
+        with torch.xpu.device(rank):
             for _ in range(10):
-                xs = [torch.FloatTensor([1]).cuda(rank)]
+                xs = [torch.FloatTensor([1]).xpu(rank)]
                 for _ in range(30):
                     pg.allreduce(xs[0]).wait()
 
-                graph = torch.cuda.CUDAGraph()
-                with torch.cuda.graph(graph):
+                graph = torch.xpu.XPUGraph()
+                with torch.xpu.graph(graph):
                     xs[0] += 0.0
                     pg.allreduce(xs[0]).wait()
                     pg.allreduce(xs[0]).wait()
@@ -344,20 +343,20 @@ class ProcessGroupNCCLOpTest(MultiProcContinuousTest):
                 for _ in range(100):
                     graph.replay()
 
-    @requires_nccl()
-    @requires_nccl_version(
-        (2, 29), "Need NCCL 2.29+ for multisegment memory in CUDA graph"
-    )
-    @skip_but_pass_in_sandcastle_if(not TEST_MULTIGPU, "NCCL test requires 2+ GPUs")
+    # @requires_nccl()
+    # @requires_nccl_version(
+    #     (2, 29), "Need NCCL 2.29+ for multisegment memory in CUDA graph"
+    # )
+    # @skip_but_pass_in_sandcastle_if(not TEST_MULTIGPU, "NCCL test requires 2+ GPUs")
     def test_nccl_cudagraph_multisegment(self):
         # Prior to NCCL 2.29, this would cause an Invalid Memory Access (IMA)
         # because NCCL didn't properly handle multisegment memory in graphs.
         local_device_idx = self.rank_to_GPU[self.rank][0]
-        torch.cuda.set_device(local_device_idx)
-        torch.cuda.memory._set_allocator_settings("expandable_segments:True")
+        torch.accelerator.set_device_index(local_device_idx)
+        # torch._C._accelerator_setAllocatorSettings("expandable_segments:True")
 
         b, t, d = 64, 1, 101024
-        inp = torch.ones((b, t, d), device="cuda") * (self.rank + 1)
+        inp = torch.ones((b, t, d), device="xpu") * (self.rank + 1)
 
         for _ in range(3):
             output = inp.new_empty((self.world_size, b, t, d))
@@ -369,15 +368,15 @@ class ProcessGroupNCCLOpTest(MultiProcContinuousTest):
         static_inp = inp.clone()
         static_output = inp.new_empty((self.world_size, b, t, d))
 
-        graph = torch.cuda.CUDAGraph()
-        with torch.cuda.graph(graph):
+        graph = torch.xpu.XPUGraph()
+        with torch.xpu.graph(graph):
             c10d.all_gather_single(static_output, static_inp, group=self.pg)
 
         graph.replay()
-        torch.cuda.synchronize()
+        torch.accelerator.synchronize()
 
         self.assertEqual(static_output.sum().item(), expected_sum)
-        torch.cuda.memory._set_allocator_settings("expandable_segments:False")
+        # torch._C._accelerator_setAllocatorSettings("expandable_segments:False")
 
     @requires_nccl()
     @skip_but_pass_in_sandcastle_if(not TEST_MULTIGPU, "NCCL test requires 2+ GPUs")

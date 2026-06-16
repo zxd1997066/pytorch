@@ -180,7 +180,7 @@ class TestDistributedStateDictSaveLoadWithSharedTensor(ShardedTensorTestBase):
         dist.broadcast_object_list(paths)
 
         path = paths[0]
-
+        device_type = torch.accelerator.current_accelerator().type
         # pyre-fixme [28]: Unexpected keyword argument `dim` to call `dist._sharding_spec.api.ChunkShardingSpec.__init__`.
         spec = ChunkShardingSpec(
             dim=0,
@@ -234,6 +234,7 @@ class TestDistributedReshardOnLoad(ShardedTensorTestBase):
         return paths[0]
 
     def load_tensor(self, tensor: ShardedTensor) -> torch.Tensor:
+        device_type = torch.accelerator.current_accelerator().type
         res = (
             torch.zeros(tensor.shape, device=f"{device_type}:0")
             if dist.get_rank() == 0
@@ -250,7 +251,7 @@ class TestDistributedReshardOnLoad(ShardedTensorTestBase):
 
         # We hardcode the assumption of how many shards are around
         self.assertEqual(self.world_size, dist.get_world_size())
-
+        device_type = torch.accelerator.current_accelerator().type
         specs = [
             # pyre-fixme [28]: Unexpected keyword argument `dim` to call `dist._sharding_spec.api.ChunkShardingSpec.__init__`.
             ChunkShardingSpec(
@@ -363,7 +364,7 @@ class TestDistributedReshardOnLoad(ShardedTensorTestBase):
     def test_load_rowwise_to_colwise(self) -> None:
         path = self.get_file_path()
         self.assertEqual(self.world_size, dist.get_world_size())
-
+        device_type = torch.accelerator.current_accelerator().type
         # pyre-fixme [28]: Unexpected keyword argument `dim` to call `dist._sharding_spec.api.ChunkShardingSpec.__init__`.
         src_spec = ChunkShardingSpec(
             dim=0,
@@ -433,7 +434,7 @@ class TestDistributedReshardOnLoad(ShardedTensorTestBase):
     def test_switch_between_sharded_tensor_to_tensor(self) -> None:
         path = self.get_file_path()
         tensor_size = 32
-
+        device_type = torch.accelerator.current_accelerator().type
         specs = [
             ChunkShardingSpec(
                 dim=0,
@@ -525,6 +526,7 @@ class TestDistributedStateDictSaveLoadWithCaching(ShardedTensorTestBase):
     @with_temp_dir
     def test_read_write_shard_tensor(self) -> None:
         # pyre-fixme [28]: Unexpected keyword argument `dim` to call `dist._sharding_spec.api.ChunkShardingSpec.__init__`.
+        device_type = torch.accelerator.current_accelerator().type
         spec = ChunkShardingSpec(
             dim=0,
             placements=[

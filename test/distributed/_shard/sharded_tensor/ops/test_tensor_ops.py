@@ -16,6 +16,10 @@ from torch.testing._internal.distributed._shard.sharded_tensor import (
     with_comms,
 )
 
+device_type = (
+    acc.type if (acc := torch.accelerator.current_accelerator(True)) else "cpu"
+)
+backend = torch.distributed.get_default_backend_for_device(device_type)
 
 device_type = (
     acc.type if (acc := torch.accelerator.current_accelerator(True)) else "cpu"

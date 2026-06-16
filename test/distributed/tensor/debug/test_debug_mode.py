@@ -21,13 +21,12 @@ from torch.distributed.tensor._dtensor_spec import ShardOrderEntry
 from torch.fx.experimental.proxy_tensor import make_fx
 from torch.testing._internal.common_distributed import (
     MultiProcessTestCase,
-    requires_nccl,
+    requires_accelerator_dist_backend,
     skip_if_lt_x_gpu,
 )
 from torch.testing._internal.common_utils import (
     instantiate_parametrized_tests,
     parametrize,
-    requires_cuda,
     run_tests,
     TestCase,
 )
@@ -45,7 +44,10 @@ from torch.utils._python_dispatch import TorchDispatchMode
 from torch.utils._triton import has_triton_package
 
 
-@requires_cuda
+device_type = acc.type if (acc := torch.accelerator.current_accelerator()) else "cpu"
+backend = torch.distributed.get_default_backend_for_device(device_type)
+
+
 class TestDTensorDebugMode(TestCase):
     def tearDown(self):
         super().tearDown()
@@ -58,7 +60,7 @@ class TestDTensorDebugMode(TestCase):
         dist.init_process_group(
             backend="fake", rank=0, world_size=self.world_size, store=store
         )
-        self.device_type = "cuda"
+        self.device_type = device_type
 
     def test_debug_mode_mm(self):
         mesh = DeviceMesh(self.device_type, list(range(self.world_size)))
@@ -907,8 +909,8 @@ class TestDTensorDebugMode(TestCase):
         )
 
     @unittest.skipIf(
-        not torch.cuda.is_available()
-        or torch.cuda.get_device_properties(0).total_memory < 2**26,
+        not torch.accelerator.is_available()
+        or (torch.cuda.is_available() and torch.cuda.get_device_properties(0).total_memory < 2**26),
         "Being conservative, test peak memory is 25MB?",
     )
     def test_tensor_hash_redistribute(self):
@@ -1148,15 +1150,15 @@ class TestDTensorDebugModeNCCLBackend(MultiProcessTestCase):
 
     def _init_process_group(self):
         """Initialize NCCL process group for each spawned process."""
-        torch.cuda.set_device(self.rank)
+        torch.accelerator.set_device_index(self.rank)
         store = dist.FileStore(self.file_name, self.world_size)
         dist.init_process_group(
-            "nccl",
+            backend,
             world_size=self.world_size,
             rank=self.rank,
             store=store,
         )
-        self.device = f"cuda:{self.rank}"
+        self.device = f"{device_type}:{self.rank}"
 
     def _destroy_process_group(self):
         """Destroy the process group."""
@@ -1169,7 +1171,7 @@ class TestDTensorDebugModeNCCLBackend(MultiProcessTestCase):
         except OSError:
             pass
 
-    @requires_nccl()
+    @requires_accelerator_dist_backend()
     @skip_if_lt_x_gpu(2)
     def test_allgather_base(self):
         self._init_process_group()
@@ -1195,7 +1197,7 @@ class TestDTensorDebugModeNCCLBackend(MultiProcessTestCase):
 
         self._destroy_process_group()
 
-    @requires_nccl()
+    @requires_accelerator_dist_backend()
     @skip_if_lt_x_gpu(2)
     def test_allgather_base_async_op(self):
         """Test all_gather_into_tensor with async_op=True."""
@@ -1230,7 +1232,7 @@ class TestDTensorDebugModeNCCLBackend(MultiProcessTestCase):
 
         self._destroy_process_group()
 
-    @requires_nccl()
+    @requires_accelerator_dist_backend()
     @skip_if_lt_x_gpu(2)
     def test_allgather_functional_with_async_collective_tensor(self):
         self._init_process_group()

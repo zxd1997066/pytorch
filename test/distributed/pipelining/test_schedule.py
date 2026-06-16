@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 from model_registry import MultiMLP
 
 import torch
+import torch.distributed as c10d
 from torch._dynamo import OptimizedModule
 from torch.distributed.pipelining import (
     Schedule1F1B,
@@ -57,12 +58,15 @@ from torch.testing._internal.common_utils import (
     instantiate_parametrized_tests,
     parametrize,
     run_tests,
+    skip_but_pass_in_sandcastle_if,
     TestCase,
 )
 from torch.testing._internal.distributed.fake_pg import FakeStore
 
 
 ARTIFACTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "artifacts")
+device = torch.accelerator.current_accelerator()
+backend = c10d.get_default_backend_for_device(device) if device is not None else "None"
 
 device = (
     acc.type

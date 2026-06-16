@@ -736,12 +736,12 @@ class DistTensorRandomOpCompileTest(DTensorTestBase):
         """Run fn num_runs times after resetting RNG, returning results and states."""
         torch.manual_seed(0)
         results = []
-        rng_states = [torch.cuda.get_rng_state()]
+        rng_states = [torch.xpu.get_rng_state()]
         for _ in range(num_runs):
             x = create_input()
             result = fn(x)
             results.append(result.to_local().clone())
-            rng_states.append(torch.cuda.get_rng_state())
+            rng_states.append(torch.xpu.get_rng_state())
         # verify RNG state advances after each call
         for i in range(len(rng_states) - 1):
             self.assertFalse(

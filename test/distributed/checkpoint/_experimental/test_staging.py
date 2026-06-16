@@ -4,6 +4,7 @@ from concurrent.futures import Future
 from unittest import skipIf
 
 import torch
+import unittest
 from torch.distributed.checkpoint._experimental.staging import (
     CheckpointStagerConfig,
     DefaultStager,
@@ -11,7 +12,9 @@ from torch.distributed.checkpoint._experimental.staging import (
 from torch.testing._internal.common_device_type import instantiate_device_type_tests
 from torch.testing._internal.common_utils import run_tests, TEST_ACCELERATOR, TestCase
 
-
+requires_gpu = unittest.skipUnless(
+    torch.cuda.is_available() or torch.xpu.is_available(), "requires cuda or xpu"
+)
 class TestDefaultStager(TestCase):
     def setUp(self) -> None:
         super().setUp()

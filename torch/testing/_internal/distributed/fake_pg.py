@@ -33,3 +33,4 @@ dist.Backend.register_backend(
     extended_api=True,
     devices=["cpu", "cuda", "hpu", "xpu"],
 )
+

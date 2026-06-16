@@ -66,6 +66,7 @@ class TestModule(torch.nn.Module):
 
     def spec(self) -> ChunkShardingSpec:
         # pyre-fixme [28]: Unexpected keyword argument `dim` to call `dist._sharding_spec.api.ChunkShardingSpec.__init__`.
+        device_type = torch.accelerator.current_accelerator().type
         return ChunkShardingSpec(
             dim=0,
             placements=[
@@ -84,6 +85,7 @@ class TestDistributedCheckpointing(ShardedTensorTestBase):
     @skip_if_lt_x_gpu(2)
     @requires_accelerator_dist_backend()
     def test_tensor_metadata_with_missing_rank_spec(self) -> None:
+        device_type = torch.accelerator.current_accelerator().type
         spec = ChunkShardingSpec(
             dim=0,
             placements=[
@@ -238,6 +240,7 @@ class FaultyStorageReader(TestStorageBase, StorageReader):
 
 class TestDistributedFailure(ShardedTensorTestBase):
     def get_spec(self):
+        device_type = torch.accelerator.current_accelerator().type
         return ChunkShardingSpec(
             dim=0,
             placements=[

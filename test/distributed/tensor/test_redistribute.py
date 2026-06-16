@@ -1119,11 +1119,12 @@ instantiate_parametrized_tests(RedistributeTest)
 
 
 class MultiDimRedistributeTest(DTensorContinuousTestBase):
-    world_size = 8
+    device_count = torch.accelerator.device_count() if torch.accelerator.is_available() else 8
+    world_size = min(8, device_count)
 
     def test_multi_dim_mesh(self):
         devices = torch.arange(self.world_size)
-        for mesh_shape in [devices, devices.view(4, 2), devices.view(2, 2, 2)]:
+        for mesh_shape in [devices, devices.view(4, self.world_size // 4), devices.view(2, 2, self.world_size // 4)]:
             mesh_shape = torch.arange(self.world_size).view(-1, 2)
             device_mesh = DeviceMesh(self.device_type, mesh_shape)
             tensor_shape = (16, 24)
@@ -1169,6 +1170,7 @@ class MultiDimRedistributeTest(DTensorContinuousTestBase):
                         expected = num_sums * full_tensor
                         self.assertEqual(local_full, expected)
 
+    @skip_if_lt_x_gpu(8)
     def test_redistribute_shard_dim_multi_dim_mesh(self):
         mesh = init_device_mesh(self.device_type, (2, 2, 2))
         input_data = torch.randn((8, 8, 8), device=self.device_type)
@@ -1207,7 +1209,8 @@ class MultiDimRedistributeTest(DTensorContinuousTestBase):
 
 
 class DistributeWithDeviceOrderTest(DTensorContinuousTestBase):
-    world_size = 8
+    device_count = torch.accelerator.device_count() if torch.accelerator.is_available() else 8
+    world_size = min(8, device_count)
 
     def _extract_redistribute_trace_from_debug_mode(self, s: str) -> str:
         import re
@@ -1222,7 +1225,7 @@ class DistributeWithDeviceOrderTest(DTensorContinuousTestBase):
     def test_ordered_redistribute(self):
         """Test ordered redistribution with various sharding syntaxes"""
         torch.manual_seed(21)
-        mesh = init_device_mesh(self.device_type, (2, 2, 2))
+        mesh = init_device_mesh(self.device_type, (2, 2, self.world_size // 4))
         input_data = torch.randn((8, 8, 8), device=self.device_type)
         sharding_src_dst_pairs_with_expected_trace = [
             (
@@ -1305,6 +1308,7 @@ class DistributeWithDeviceOrderTest(DTensorContinuousTestBase):
             )
             self.assertEqual(sharded_dt.to_local(), expected_dt.to_local())
 
+    @skip_if_lt_x_gpu(8)
     def test_force_min_cost_redistribution_plan(self):
         """
         Test that the disable_graph_based_transform context manager correctly controls
@@ -1378,9 +1382,9 @@ class DistributeWithDeviceOrderTest(DTensorContinuousTestBase):
         import math
 
         test_inputs = [
-            {"mesh": init_device_mesh(self.device_type, (2, 2, 2)), "tensor_rank": 2},
-            {"mesh": init_device_mesh(self.device_type, (2, 2, 2)), "tensor_rank": 3},
-            {"mesh": init_device_mesh(self.device_type, (2, 2, 2)), "tensor_rank": 4},
+            {"mesh": init_device_mesh(self.device_type, (2, 2, self.world_size // 4)), "tensor_rank": 2},
+            {"mesh": init_device_mesh(self.device_type, (2, 2, self.world_size // 4)), "tensor_rank": 3},
+            {"mesh": init_device_mesh(self.device_type, (2, 2, self.world_size // 4)), "tensor_rank": 4},
         ]
         for test_input in test_inputs:
             all_combinations = []
@@ -1418,7 +1422,7 @@ class DistributeWithDeviceOrderTest(DTensorContinuousTestBase):
         torch.manual_seed(21)
 
         with maybe_disable_local_tensor_mode():
-            mesh = init_device_mesh(self.device_type, (2, 2, 2))
+            mesh = init_device_mesh(self.device_type, (2, 2, self.world_size // 4))
             input_tensor_shape = [
                 # even sharding
                 (16, 8),
@@ -1465,6 +1469,7 @@ class DistributeWithDeviceOrderTest(DTensorContinuousTestBase):
                     self.assertEqual(make_full_tensor(sharded_dt), input_data)
                     prev_sharded_dt = sharded_dt
 
+    @skip_if_lt_x_gpu(8)
     def test_graph_based_redistribute_cost(self):
         """
         This test verifies the correctness of
@@ -1604,6 +1609,7 @@ class DistributeWithDeviceOrderTest(DTensorContinuousTestBase):
         )
         sharded_dt = redistribute(sharded_dt, mesh, tgt_placement, shard_order=None)
 
+    @skip_if_lt_x_gpu(8)
     def test_shard_order_same_data_as_strided_shard(self):
         device_mesh = init_device_mesh(self.device_type, (4, 2))
         x = torch.randn(8, 4, device=self.device_type)
@@ -1619,6 +1625,7 @@ class DistributeWithDeviceOrderTest(DTensorContinuousTestBase):
         )
         self.assertEqual(x_ordered_dt.to_local(), x_strided_dt.to_local())
 
+    @skip_if_lt_x_gpu(8)
     def test_ordered_all_gather_with_flattening(self):
         """Test that flattened all_gather produces correct results with non-ascending shard order.
 
@@ -1699,6 +1706,7 @@ class DistributeWithDeviceOrderTest(DTensorContinuousTestBase):
         self.assertEqual(ascending_result.to_local(), input_data)
         self.assertEqual(non_ascending_result.to_local(), input_data)
 
+    @skip_if_lt_x_gpu(8)
     def test_debug_mode_shows_optimized_trace(self):
         """Test that DebugMode captures the optimized (flattened) redistribution trace.
 

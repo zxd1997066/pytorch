@@ -1,6 +1,7 @@
 # Owner(s): ["oncall: distributed"]
 
 import os
+import unittest
 import sys
 import unittest
 from datetime import timedelta
@@ -36,6 +37,8 @@ from torch.testing._internal.common_utils import (
 device_type = acc.type if (acc := torch.accelerator.current_accelerator()) else "cpu"
 backend = c10d.get_default_backend_for_device(device_type)
 
+device_type = acc.type if (acc := torch.accelerator.current_accelerator()) else "cpu"
+backend = c10d.get_default_backend_for_device(device_type)
 
 class AbstractProcessGroupWrapperTest(MultiProcessTestCase):
     def setUp(self):
@@ -372,9 +375,9 @@ if not TEST_WITH_DEV_DBG_ASAN:
         @skip_if_lt_x_gpu(2)
         @with_dist_debug_levels(levels=["DETAIL"])
         def test_reduce_scatter_tensor_coalesced_debug_mode(self):
-            torch.cuda.set_device(self.rank)
+            torch.accelerator.set_device_index(self.rank)
             pg = self._create_wrapper_pg(with_new_group=True)
-            dev = torch.cuda.current_device()
+            dev = torch.accelerator.current_accelerator()
 
             out_shapes = [(2, 2), (3, 3)]
             in_shapes = [(s[0] * self.world_size,) + s[1:] for s in out_shapes]
@@ -391,7 +394,6 @@ if not TEST_WITH_DEV_DBG_ASAN:
                 )
                 self.assertTrue(torch.allclose(output, expected))
 
-        @requires_nccl()
         @skip_if_lt_x_gpu(2)
         @with_dist_debug_levels(levels=["DETAIL"])
         @patch("torch.distributed.distributed_c10d._GLOO_AVAILABLE", False)

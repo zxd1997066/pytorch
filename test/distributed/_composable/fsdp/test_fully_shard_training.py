@@ -60,11 +60,10 @@ from torch.testing._internal.common_utils import (
     get_cycles_per_ms,
     MI200_ARCH,
     run_tests,
+    TEST_XPU,
     skipIfRocm,
     skipIfTorchInductor,
-    TEST_CUDA_GRAPH,
     TEST_HPU,
-    TEST_XPU,
     wrapSwapTensorsTest,
     xfailIf,
 )
@@ -73,7 +72,6 @@ from torch.testing._internal.distributed._tensor.common_dtensor import (
     Transformer,
     TransformerBlock,
 )
-
 
 c10d_ops = torch.ops.c10d
 funcol = torch.ops.c10d_functional
@@ -2655,12 +2653,8 @@ class TestFullyShardCudaGraph(FSDPTest):
 
     @skipIfRocm(msg="https://github.com/pytorch/pytorch/issues/173761")
     @skip_if_lt_x_gpu(2, allow_cpu=True)
-    @unittest.skipIf(
-        not TEST_CUDA_GRAPH, "CUDA >= 11.0 or ROCM >= 5.3 required for graphs"
-    )
     def test_two_layer_fully_shard_cudagraph(self):
-        if device_type.type == "cuda":
-            torch.cuda.set_device(self.rank)
+        torch.accelerator.set_device_index(self.rank)
         device = torch.device(device_type.type, self.rank)
         torch.manual_seed(42)
         model = nn.Sequential(
@@ -2673,10 +2667,10 @@ class TestFullyShardCudaGraph(FSDPTest):
         fully_shard(model[1])
         fully_shard(model)
 
-        stream = torch.cuda.Stream()
+        stream = torch.xpu.Stream()
 
         # warmup
-        with torch.cuda.stream(stream):
+        with torch.xpu.stream(stream):
             input_tensor = torch.randn(4, 8, device=device)
             output = model(input_tensor)
             output.sum().backward()
@@ -2685,8 +2679,8 @@ class TestFullyShardCudaGraph(FSDPTest):
 
         # stream capture to graph
         static_input = input_tensor.clone()
-        graph = torch.cuda.CUDAGraph()
-        with torch.cuda.graph(graph, stream=stream):
+        graph = torch.xpu.XPUGraph()
+        with torch.xpu.graph(graph, stream=stream):
             static_output = model(static_input)
             static_output.sum().backward()
             static_output_grads = [
@@ -2694,7 +2688,7 @@ class TestFullyShardCudaGraph(FSDPTest):
             ]
 
         # equivalence check
-        with torch.cuda.stream(stream):
+        with torch.xpu.stream(stream):
             for _ in range(2):
                 replay_input = torch.randn(4, 8, device=device)
                 ref_output = model(replay_input)
@@ -2709,7 +2703,6 @@ class TestFullyShardCudaGraph(FSDPTest):
                 for graph_grad, ref_grad in zip(static_output_grads, ref_grads):
                     self.assertTrue(torch.equal(graph_grad, ref_grad))
                 model.zero_grad(set_to_none=True)
-
 
 if __name__ == "__main__":
     run_tests()

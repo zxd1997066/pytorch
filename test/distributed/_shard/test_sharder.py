@@ -5,6 +5,8 @@ import sys
 import torch
 import torch.distributed as dist
 import torch.nn as nn
+import torch.distributed as dist
+
 from torch.distributed._shard import shard_module
 from torch.distributed._shard.sharded_tensor import ShardedTensor
 from torch.distributed._shard.sharder import Sharder

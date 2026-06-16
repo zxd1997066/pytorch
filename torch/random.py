@@ -180,6 +180,19 @@ def fork_rng(
             see details in :ref:`accelerator<accelerators>`
     """
 
+    if device_type is None:
+        if devices is not None:
+            devices = list(devices)
+            if devices:
+                try:
+                    device_type = torch.device(devices[0]).type
+                except Exception:
+                    device_type = "cuda"
+            else:
+                device_type = "cuda"
+        else:
+            device_type = "cuda"
+
     if device_type == "meta":
         yield
         return

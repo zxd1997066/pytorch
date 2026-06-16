@@ -590,7 +590,6 @@ class TestReplicateMixedPrecisionCasts(FSDPTestMultiThread):
         )
 
     @skip_if_lt_x_gpu(1)
-    @requires_nccl_version((2, 10), "Need NCCL 2.10+ for bf16 collectives")
     def test_norm_modules_bf16(self):
         mp_policy = MixedPrecisionPolicy(param_dtype=torch.bfloat16)
         self._test_norm_modules(mp_policy)
@@ -702,7 +701,7 @@ class TestReplicateMixedPrecisionCasts(FSDPTestMultiThread):
             torch.bfloat16, torch.bfloat16, torch.bfloat16, True
         )
         model = Model()
-        inp = Input(torch.randn(2, 10).cuda())
+        inp = Input(torch.randn(2, 10).to(device_type))
 
         replicate(model, mp_policy=mp_policy)
         loss = model(inp).sum()

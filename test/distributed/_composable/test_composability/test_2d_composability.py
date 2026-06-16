@@ -177,7 +177,6 @@ class TestFullyShard2DTraining(FSDPTestContinuous):
             self.assertEqual(losses[0], losses[1])
 
     @skip_if_lt_x_gpu(2)
-    @xfailIf(TEST_XPU)  # https://github.com/intel/torch-xpu-ops/issues/1881
     def test_train_parity_2d_transformer(self):
         self.run_subtests(
             {"use_shard_placement_fn": [False, True]},
@@ -195,7 +194,7 @@ class TestFullyShard2DTraining(FSDPTestContinuous):
         global_mesh = init_device_mesh(
             device_type, (dp_size, tp_size), mesh_dim_names=("dp", "tp")
         )
-        model = Transformer.parallelize(model, global_mesh["tp"], use_seq_parallel=True)
+        model = Transformer.parallelize(model, global_mesh["tp"], use_seq_parallel=True, local_output_for_attn=True)
 
         def _shard_placement_fn(param: nn.Parameter) -> Shard | None:
             if isinstance(param, DTensor):
@@ -259,7 +258,6 @@ class TestFullyShard2DTraining(FSDPTestContinuous):
             self.assertEqual(full_param, ref_param)
 
     @skip_if_lt_x_gpu(2)
-    @xfailIf(TEST_XPU)  # https://github.com/pytorch/pytorch/issues/156782
     def test_tp_with_fsdp_offloading(self):
         global_mesh = init_device_mesh(
             device_type, (1, self.world_size), mesh_dim_names=("dp", "tp")
@@ -318,7 +316,6 @@ class TestFullyShard2DTraining(FSDPTestContinuous):
         IS_LINUX or TEST_WITH_ROCM, "https://github.com/pytorch/pytorch/issues/125644"
     )
     @skip_if_lt_x_gpu(2)
-    @xfailIf(TEST_XPU)  # https://github.com/intel/torch-xpu-ops/issues/1881
     @with_temp_dir
     def test_train_parity_2d_transformer_checkpoint_resume(self):
         """
@@ -355,7 +352,7 @@ class TestFullyShard2DTraining(FSDPTestContinuous):
             return loss
 
         def parallelize(_model: Transformer, mesh: DeviceMesh, use_seq_parallel: bool):
-            _model = Transformer.parallelize(_model, mesh["tp"], use_seq_parallel)
+            _model = Transformer.parallelize(_model, mesh["tp"], use_seq_parallel, local_output_for_attn=True)
             for layer in _model.layers:
                 fully_shard(layer, mesh=mesh["dp"])
             fully_shard(_model, mesh=mesh["dp"])

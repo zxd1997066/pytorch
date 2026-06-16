@@ -28,6 +28,7 @@ class FsdpOptimStateCheckpoint(DTensorTestBase):
         layer1_weight_dim = self.world_size
         layer2_weight_dim = self.world_size * 2
         layer3_weight_dim = self.world_size * 3
+        device = torch.accelerator.current_accelerator()
 
         class TestDummyModel(torch.nn.Module):
             def __init__(self, device_type) -> None:

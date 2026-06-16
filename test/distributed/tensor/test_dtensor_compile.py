@@ -219,6 +219,7 @@ def _apply_sharding(mod: nn.Module, shard_dim: int, device_mesh: DeviceMesh):
 
 
 class TestDTensorCompile(torch._dynamo.test_case.TestCase):
+    device = torch.accelerator.current_accelerator()
     def setUp(self):
         super().setUp()
         fake_store = FakeStore()
@@ -711,7 +712,6 @@ def forward(self, arg0_1, arg1_1, arg2_1):
         self.assertEqual(res, ref)
 
     @skipIfHpu
-    @skipXPUIf(True, "https://github.com/intel/torch-xpu-ops/issues/1981")
     def test_dtensor_dynamic_loss_parallel_log_softmax(self):
         mesh = DeviceMesh(self.device_type, torch.arange(self.world_size))
 

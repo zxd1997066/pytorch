@@ -21,6 +21,10 @@ from torch.testing._internal.distributed._shard.sharded_tensor._test_ops_common 
     generate_local_weight_sharding_params_for_test,
 )
 
+device_type = (
+    acc.type if (acc := torch.accelerator.current_accelerator(True)) else "cpu"
+)
+backend = torch.distributed.get_default_backend_for_device(device_type)
 
 device_type = (
     acc.type if (acc := torch.accelerator.current_accelerator(True)) else "cpu"

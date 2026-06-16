@@ -49,7 +49,7 @@ from torch.testing._internal.distributed._tensor.common_dtensor import (
     shard_order_to_placement,
     with_comms,
 )
-
+from torch.testing._internal.common_distributed import skip_if_lt_x_gpu
 
 c10d_functional = torch.ops.c10d_functional
 
@@ -400,6 +400,7 @@ class UtilTest(DTensorTestBase):
             offset.append(((global_offset[i]), (global_offset[i] + local_size[i])))
         return offset
 
+    @skip_if_lt_x_gpu(8)
     @with_comms
     def test_compute_global_tensor_shape_1D(self):
         one_d_placements = [[Shard(1)], [Shard(0)], [Replicate()]]
@@ -432,6 +433,7 @@ class UtilTest(DTensorTestBase):
             )
             self.assertEqual(global_shape, expected_global_shape)
 
+    @skip_if_lt_x_gpu(8)
     @with_comms
     def test_compute_global_tensor_shape_1D_invalid_shape(self):
         one_d_placement = [Shard(1)]
@@ -459,6 +461,7 @@ class UtilTest(DTensorTestBase):
                 one_d_placement,
             )
 
+    @skip_if_lt_x_gpu(8)
     @with_comms
     def test_compute_global_tensor_shape_failure_2D(self):
         placement_2D = [Shard(0), Shard(1)]
@@ -483,6 +486,7 @@ class UtilTest(DTensorTestBase):
                 placement_1D,
             )
 
+    @skip_if_lt_x_gpu(8)
     @with_comms
     def test_compute_local_shape_and_global_offset_1D(self):
         one_d_placements = [[Shard(0)], [Replicate()]]
@@ -511,6 +515,7 @@ class UtilTest(DTensorTestBase):
                     global_tensor[dim0_start:dim0_end],
                 )
 
+    @skip_if_lt_x_gpu(8)
     @with_comms
     def test_compute_local_shape_and_global_offset_2D(self):
         two_d_placements_options = [Shard(0), Shard(1), Replicate()]
@@ -561,6 +566,7 @@ class UtilTest(DTensorTestBase):
                     global_tensor,
                 )
 
+    @skip_if_lt_x_gpu(8)
     @with_comms
     def test_compute_local_shape_and_global_offset_3D(self):
         global_tensor_shape = torch.Size([2 * self.world_size, 2 * self.world_size])
@@ -658,6 +664,7 @@ class UtilTest(DTensorTestBase):
         self.assertEqual(local_shape, expected_local_shape)
         self.assertEqual(global_offset, expected_global_offset)
 
+    @skip_if_lt_x_gpu(8)
     @with_comms
     def test_uneven_fsdp_tp_meta_compute(self):
         # FSDP + TP uneven sharding
@@ -682,6 +689,7 @@ class UtilTest(DTensorTestBase):
 
         maybe_compute_rankwise(rank, local_shape, global_offset)
 
+    @skip_if_lt_x_gpu(8)
     @with_comms
     def test_hsdp_tp_meta_compute(self):
         # HSDP + TP sharding

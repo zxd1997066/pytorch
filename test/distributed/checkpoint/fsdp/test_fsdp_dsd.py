@@ -133,6 +133,7 @@ class TestFullyShardWithDistributedStateDict(FSDPTest):
         """
 
         # Save state dict with model wrapped with FSDP1
+        device = torch.accelerator.current_accelerator()
         fsdp1_model = FSDP(
             self._get_base_model().to(device_type),
             use_orig_params=True,
@@ -209,6 +210,7 @@ class TestFullyShardWithDistributedStateDict(FSDPTest):
 
         # init device mesh
         dp_size = 2
+        device = torch.accelerator.current_accelerator()
         global_mesh = init_device_mesh(
             device_type,
             (dp_size, self.world_size // dp_size),
@@ -343,6 +345,7 @@ class TestFullyShardWithDistributedStateDict(FSDPTest):
 
         # init device mesh
         dp_size = 2
+        device = torch.accelerator.current_accelerator()
         global_mesh_1d = init_device_mesh(
             device_type, (self.world_size,), mesh_dim_names=("tp",)
         )
@@ -499,6 +502,7 @@ class TestFullyShardWithDistributedStateDict(FSDPTest):
         with cm:
             # init device mesh
             dp_size = 2
+            device = torch.accelerator.current_accelerator()
             global_mesh_1d = init_device_mesh(
                 device_type, (self.world_size,), mesh_dim_names=("tp",)
             )

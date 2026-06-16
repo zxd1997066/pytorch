@@ -58,6 +58,7 @@ skipIfNoTorchVision = skip_but_pass_in_sandcastle_if(
     not HAS_TORCHVISION, "no torchvision"
 )
 
+device_type = torch.accelerator.current_accelerator().type
 
 if not dist.is_available():
     print("Distributed not available, skipping tests", file=sys.stderr)
@@ -89,7 +90,7 @@ mp_only_param_and_buf = MixedPrecision(
 # Nothing is cast (thus param, comm, grad, and buffer should be in the full precision)
 mp_no_mixed_precision = MixedPrecision()
 
-nccl_supports_bf16 = dist.is_nccl_available() and nccl.version() >= (2, 10)
+nccl_supports_bf16 = dist.is_nccl_available() and nccl.version() >= (2, 10) or torch.xpu.is_available()
 
 mp_configs = [default_mp, mp_only_reduce, mp_only_param_and_buf, mp_no_mixed_precision]
 if nccl_supports_bf16:

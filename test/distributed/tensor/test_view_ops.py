@@ -40,7 +40,7 @@ from torch.testing._internal.distributed._tensor.common_dtensor import (
     LocalDTensorContinuousTestBase,
 )
 from torch.utils import _pytree as pytree
-
+from torch.testing._internal.common_distributed import skip_if_lt_x_gpu
 
 class TestViewOps(DTensorContinuousTestBase):
     world_size = 6
@@ -616,7 +616,6 @@ class TestViewOps(DTensorContinuousTestBase):
     #         Split(InputDim(1), (13, 2), 1),
     #     ),
     # )
-
     def test_complex_view_ops(self):
         self.device_mesh = DeviceMesh(
             self.device_type, torch.arange(dist.get_world_size()).view(-1, 2)

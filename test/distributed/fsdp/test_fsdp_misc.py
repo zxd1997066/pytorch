@@ -871,8 +871,8 @@ class TestFSDPMiscMultiThread(FSDPTestMultiThread):
             def __init__(self, rank):
                 super().__init__()
                 self.rank = rank
-                self.a = nn.Linear(1, 1).cuda(self.rank)
-                self.b = nn.Linear(1, 1).cuda((self.rank + 1) % dist.get_world_size())
+                self.a = nn.Linear(1, 1).to(self.rank)
+                self.b = nn.Linear(1, 1).to((self.rank + 1) % dist.get_world_size())
 
         with self.assertRaisesRegex(
             RuntimeError, "FSDP only supports single device modules"
@@ -905,7 +905,7 @@ class TestFSDPMiscMultiThread(FSDPTestMultiThread):
         context = (
             (
                 self.assertRaisesRegex(
-                    ValueError, f"Inconsistent.*cuda:{self.rank} vs cuda:0"
+                    ValueError, f"Inconsistent.*{device_type}:{self.rank} vs {device_type}:0"
                 )
             )
             if self.rank != 0
@@ -957,7 +957,6 @@ class TestFSDPMiscMultiThread(FSDPTestMultiThread):
                 fsdp, process_group=self.process_group, assert_fn=self.assertEqual
             )
 
-    @unittest.skipIf(IS_LINUX, "https://github.com/pytorch/pytorch/issues/105024")
     @skip_if_lt_x_gpu(2)
     def test_homogeneous_attributes(self):
         """
@@ -1010,7 +1009,6 @@ class TestFSDPMiscMultiThread(FSDPTestMultiThread):
             inp = fsdp_model.module.get_input(torch.device(device_type))
             fsdp_model(*inp)
 
-    @unittest.skipIf(IS_LINUX, "https://github.com/pytorch/pytorch/issues/137948")
     @skip_if_lt_x_gpu(2)
     def test_fsdp_unsupported_module_cls(self):
         regex = r"FSDP will not all-gather parameters for containers that do not implement forward"
@@ -1087,7 +1085,7 @@ class TestFSDPMiscWorldSize1(FSDPTestMultiThread):
         with self.assertRaisesRegex(
             RuntimeError,
             "An FSDP-managed module unexpectedly has parameters on cpu. Make "
-            "sure to move the module to cuda:0 before training.",
+            f"sure to move the module to {device_type}:0 before training.",
         ):
             fsdp_model(inp)
 
@@ -1099,7 +1097,7 @@ class TestFSDPMiscWorldSize1(FSDPTestMultiThread):
         with self.assertRaisesRegex(
             RuntimeError,
             "An FSDP-managed module with parameter CPU offloading enabled has "
-            "parameters on cuda:0. Make sure to not move the module from CPU "
+            f"parameters on {device_type}:0. Make sure to not move the module from CPU "
             "when offloading parameters.",
         ):
             fsdp_model(inp)

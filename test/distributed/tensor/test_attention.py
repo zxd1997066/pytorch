@@ -102,7 +102,7 @@ class SDPAWrapper(torch.nn.Module):
 class RingAttentionTest(DTensorTestBase):
     @property
     def world_size(self) -> int:
-        return torch.cuda.device_count()
+        return torch.accelerator.device_count()
 
     @property
     def destroy_pg_upon_exit(self) -> bool:
@@ -110,10 +110,6 @@ class RingAttentionTest(DTensorTestBase):
 
     @skip_if_lt_x_gpu(2)
     @skipIfRocm  # Missing _c10d_functional_autograd::all_to_all_single
-    @unittest.skipIf(
-        not PLATFORM_SUPPORTS_FUSED_ATTENTION,
-        "Does not support flash nor efficient attention",
-    )
     @with_comms
     def test_ring_attention_sdpa(self) -> None:
         self.run_subtests(
@@ -552,7 +548,7 @@ class CPFlexAttentionTest(DTensorTestBase):
         document_lengths: list[list[int]] | None = None,
     ) -> None:
         torch.use_deterministic_algorithms(True)
-        torch.cuda.manual_seed(1234)
+        torch.manual_seed(1234)
 
         dtype = torch.float32
         bs = B if B > 1 else 8

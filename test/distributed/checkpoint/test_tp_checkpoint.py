@@ -45,7 +45,8 @@ class TestTpCheckpoint(DTensorTestBase):
         CHECKPOINT_DIR = self.temp_dir
         mesh_shpe = (self.world_size,)
         tp_mesh = init_device_mesh(self.device_type, mesh_shpe)
-
+        device_type = torch.accelerator.current_accelerator().type
+        device = torch.device(f"{device_type}:{self.rank}")
         # create model and move it to GPU with id rank
         model = MLPModule(self.device_type).to(self.rank)
         # Parallelize the module based on the given Parallel Style.
@@ -92,7 +93,8 @@ class TestTpCheckpoint(DTensorTestBase):
         CHECKPOINT_DIR = self.temp_dir
         mesh_shpe = (self.world_size,)
         tp_mesh = init_device_mesh(self.device_type, mesh_shpe)
-
+        device_type = torch.accelerator.current_accelerator().type
+        device = torch.device(f"{device_type}:{self.rank}")
         # create model and move it to GPU with id rank
         model = UnevenShardedModel(self.device_type).to(self.rank)
         # Parallelize the module based on the given Parallel Style.

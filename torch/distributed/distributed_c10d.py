@@ -22,6 +22,7 @@ from typing_extensions import deprecated
 
 import torch
 from torch._C import _DistStoreError as DistStoreError
+
 from torch._C._distributed_c10d import (
     _DistributedBackendOptions,
     _register_process_group,
@@ -39,11 +40,13 @@ from torch._C._distributed_c10d import (
     get_debug_level,
     PrefixStore,
     ProcessGroup,
+    ReconfigureOptions,
     ReduceOp,
     ReduceOptions,
     ReduceScatterOptions,
     ScatterOptions,
     Store,
+    Window,
     Work,
 )
 from torch._utils_internal import set_pytorch_distributed_envs_from_justknobs
@@ -174,6 +177,7 @@ _unpickler = pickle.Unpickler
 
 GroupName = NewType("GroupName", str)
 
+device_type = torch._C._get_accelerator().type
 
 # Change __module__ of all imported types from torch._C._distributed_c10d that are public
 def _export_c_types() -> None:
@@ -313,7 +317,7 @@ class Backend(str):  # noqa: SLOT000
         NCCL: ["cuda"],
         XCCL: ["xpu"],
         UCC: ["cpu", "cuda"],
-        MPI: ["cpu", "cuda"],
+        MPI: ["cpu", "cuda", "xpu"],
         FAKE: ["cpu", "cuda", "hpu", "xpu"],
     }
 
@@ -419,7 +423,7 @@ class BackendConfig:
         if backend == Backend.UNDEFINED:
             # Detect the accelerator on the machine. If no accelerator is
             # available, it returns CPU.
-            device_type = torch._C._get_accelerator().type
+            # device_type = torch._C._get_accelerator().type
             try:
                 backend_str = Backend.default_device_backend_map[device_type]
                 self.device_backend_map[device_type] = Backend(backend_str)
@@ -443,7 +447,7 @@ class BackendConfig:
             # e.g. "cpu:gloo,cuda:nccl"
             backend_str_error_message = f"""The custom backend string argument is invalid: {backend}.
                 Custom backend string is an experimental feature where the backend string must be in the format:
-                "<device_type1>:<backend1>,<device_type2>:<backend2>...". e.g. 'cpu:gloo,cuda:nccl'"""
+                "<device_type1>:<backend1>,<device_type2>:<backend2>...". e.g. 'cpu:gloo,cuda:nccl,xpu:xccl'"""
 
             # parse the backend string and populate the device_backend_map
             for device_backend_pair_str in backend.lower().split(","):
@@ -1520,10 +1524,10 @@ def get_default_backend_for_device(device: str | torch.device) -> str:
 def _get_process_group_uid(pg: ProcessGroup) -> int:
     backend = None
     try:
-        backend = pg._get_backend(torch.device("cuda"))
+        backend = pg._get_backend(torch.device(device_type))
     except RuntimeError:
         pass
-    if is_nccl_available() and isinstance(backend, ProcessGroupNCCL):
+    if hasattr(backend, "uid"):
         return backend.uid
     return -1
 
@@ -1607,10 +1611,12 @@ def _add_ephemeral_timeout_for_all_pgs(timeout: timedelta) -> None:
     """
     for pg in _world.pg_map:
         devices = pg._device_types
-        if torch.device("cuda") in devices:
-            backend = pg._get_backend(torch.device("cuda"))
+        
+        if torch.device(device_type) in devices:
+            backend = pg._get_backend(torch.device(device_type))
             if is_nccl_available() and isinstance(backend, ProcessGroupNCCL):
                 backend._add_ephemeral_timeout(timeout)
+        
 
 
 def _set_pg_timeout(timeout: timedelta, group: ProcessGroup | None = None) -> None:
@@ -1633,6 +1639,7 @@ def _set_pg_timeout(timeout: timedelta, group: ProcessGroup | None = None) -> No
     Returns:
         None
     """
+    
     if group is None:
         group = _get_default_group()
     if _rank_not_in_group(group):
@@ -1652,6 +1659,12 @@ def _set_pg_timeout(timeout: timedelta, group: ProcessGroup | None = None) -> No
         elif is_gloo_available() and isinstance(backend, ProcessGroupGloo):
             backends.add(backend)  # type: ignore[arg-type]
         elif _use_torchcomms_enabled() and isinstance(backend, _BackendWrapper):
+            backends.add(backend)  # type: ignore[arg-type]
+    if torch.device("xpu") in devices:
+        backend = group._get_backend(torch.device("xpu"))
+        if is_xccl_available() and isinstance(backend, ProcessGroupXCCL):
+            backends.add(backend)  # type: ignore[arg-type]
+        elif is_gloo_available() and isinstance(backend, ProcessGroupGloo):
             backends.add(backend)  # type: ignore[arg-type]
     if len(backends) == 0:
         warnings.warn(
@@ -1674,6 +1687,7 @@ def init_process_group(
     pg_options: Any | None = None,
     device_id: torch.device | int | None = None,
     _ranks: list[int] | None = None,
+    enable_reconfigure: bool = False,
 ) -> None:
     """
     Initialize the default distributed process group.
@@ -1750,6 +1764,11 @@ def init_process_group(
             type at compile time will be used.
         _ranks: The ranks in the process group. If provided, the process
                group name will be the hash of all the ranks in the group.
+        enable_reconfigure (bool, optional): If ``True``, create the backend in
+            the reconfigure (fault tolerance) regime. The communicator is not
+            initialized until :meth:`ProcessGroup.reconfigure` is called.
+            Backends that do not support reconfigure ignore this flag. Default
+            is ``False``.
 
     .. note:: To enable ``backend == Backend.MPI``, PyTorch needs to be built from source
         on a system that supports MPI.
@@ -1877,6 +1896,7 @@ def init_process_group(
             group_name,
             timeout=timeout,
             group_desc="default_pg",
+            enable_reconfigure=enable_reconfigure,
         )
     else:
         # backward compatible API
@@ -1907,6 +1927,7 @@ def init_process_group(
             timeout=timeout,
             device_id=device_id,
             group_desc="default_pg",
+            enable_reconfigure=enable_reconfigure,
         )
 
     _update_default_pg(default_pg)
@@ -1963,9 +1984,10 @@ def _get_split_source(pg: ProcessGroup):
     split_from = None
     if pg.bound_device_id:
         split_from = pg._get_backend(pg.bound_device_id)
+        
     elif pg is _world.default_pg:
         try:
-            split_from = pg._get_backend(torch.device("cuda"))
+            split_from = pg._get_backend(torch.device(device_type))
         except RuntimeError:
             # no cuda device associated with this backend
             pass
@@ -1993,6 +2015,7 @@ def _new_process_group_helper(
     pg_tag=None,
     device_id=None,
     group_desc=None,
+    enable_reconfigure=False,
 ):
     """
     Create a new distributed process group.
@@ -2166,6 +2189,7 @@ def _new_process_group_helper(
                 group_size,
                 # pyrefly: ignore [bad-argument-type]
                 timeout=timeout,
+                enable_reconfigure=enable_reconfigure,
             )
             backend_class.options.global_ranks_in_group = global_ranks_in_group
             backend_class.options.group_name = group_name
@@ -2198,6 +2222,8 @@ def _new_process_group_helper(
                 )
             backend_options.global_ranks_in_group = global_ranks_in_group
             backend_options.group_name = group_name
+            if enable_reconfigure:
+                backend_options.enable_reconfigure = True
             backend_class = ProcessGroupNCCL(
                 backend_prefix_store, group_rank, group_size, backend_options
             )
@@ -2223,6 +2249,8 @@ def _new_process_group_helper(
             backend_options.group_name = group_name
             # pyrefly: ignore [bad-argument-type]
             backend_options._timeout = timeout
+            if enable_reconfigure:
+                backend_options.enable_reconfigure = True
             backend_class = ProcessGroupXCCL(
                 backend_prefix_store, group_rank, group_size, backend_options
             )
@@ -2480,7 +2508,7 @@ def _abort_process_group(group: ProcessGroup | None = None):
         raise ValueError("Invalid process group specified or has been destroyed.")
 
     try:
-        backend = pg._get_backend(torch.device("cuda"))
+        backend = pg._get_backend(torch.device(device_type))
     except RuntimeError:
         backend = None
 
@@ -6171,13 +6199,13 @@ def new_subgroups(
         >>>     dist.destroy_process_group(subgroup)
     """
     if group_size is None:
-        if not torch.cuda.is_available():
+        if not torch.accelerator.is_available():
             raise ValueError(
-                "Default group size only takes effect when CUDA is available."
-                "If your subgroup using a backend that does not depend on CUDA,"
+                "Default group size only takes effect when CUDA/XPU is available."
+                "If your subgroup using a backend that does not depend on CUDA/XPU,"
                 "please pass in 'group_size' correctly."
             )
-        group_size = torch.cuda.device_count()
+        group_size = torch.accelerator.device_count()
     if group_size <= 0:
         raise ValueError(f"The arg 'group_size' ({group_size}) must be positive")
 
@@ -6493,7 +6521,7 @@ def _validate_shrink_backend_requirements(group_info: dict) -> Any:
         else:
             # Try CUDA first if available, else CPU
             try:
-                backend_impl = target_pg._get_backend(torch.device("cuda"))
+                backend_impl = target_pg._get_backend(torch.device(device_type))
             except Exception:
                 backend_impl = target_pg._get_backend(torch.device("cpu"))
     except RuntimeError as e:
@@ -6681,6 +6709,8 @@ def _create_shrunk_process_group(
     # Choose backend enum based on device type
     if backend_device.type == "cuda":
         backend_type = ProcessGroup.BackendType.NCCL
+    elif backend_device.type == "xpu":
+        backend_type = ProcessGroup.BackendType.XCCL
     else:
         backend_type = ProcessGroup.BackendType.GLOO
 
@@ -6902,3 +6932,98 @@ def record_comm(name: str):
         yield
     finally:
         torch._C._distributed_c10d._set_comm_profiling_name(prev)
+
+
+def _supports_reconfigure(group: ProcessGroup | None = None) -> bool:
+    """
+    Return whether ``group`` supports the reconfigure-based fault tolerance API.
+
+    Args:
+        group (ProcessGroup, optional): The process group to query. If ``None``,
+            the default process group is used.
+    """
+    pg = group or _get_default_group()
+    return pg.supports_reconfigure
+
+
+def _get_reconfigure_handle(group: ProcessGroup | None = None) -> str:
+    """
+    Return an opaque reconfigure handle for ``group``.
+
+    The handle encodes the information peers exchange out-of-band to
+    (re)initialize the communicator via :func:`_reconfigure`.
+
+    Args:
+        group (ProcessGroup, optional): The process group to query. If ``None``,
+            the default process group is used.
+    """
+    pg = group or _get_default_group()
+    return pg.get_reconfigure_handle()
+
+
+def _reconfigure(
+    uuid: int,
+    handles: set[str] | list[str],
+    group: ProcessGroup | None = None,
+    timeout: timedelta | None = None,
+    hints: dict[str, str] | None = None,
+) -> Work:
+    """
+    Reconfigure ``group`` with a new set of peers for fault tolerance.
+
+    Args:
+        uuid (int): Uniquely identifies this instance of the communicator. Pass
+            a fresh value on every (re)initialization.
+        handles (set[str] or list[str]): One reconfigure handle per peer, as
+            returned by :func:`_get_reconfigure_handle`. A list assigns ranks by
+            position; a set lets the backend choose the rank assignment.
+        group (ProcessGroup, optional): The process group to reconfigure. If
+            ``None``, the default process group is used.
+        timeout (timedelta, optional): How long to allow reconfiguration before
+            failing. ``None`` uses the backend's default timeout.
+        hints (dict[str, str], optional): Backend-specific configuration.
+
+    Returns:
+        Work: An async work handle for the reconfigure operation.
+    """
+    pg = group or _get_default_group()
+    opts = ReconfigureOptions()
+    opts.uuid = uuid
+    opts.handles = handles
+    if timeout is not None:
+        opts.timeout = timeout
+    if hints is not None:
+        opts.hints = hints
+    return pg.reconfigure(opts)
+
+
+def _supports_window(group: ProcessGroup | None = None) -> bool:
+    """
+    Return whether ``group`` supports one-sided (RMA) window operations.
+
+    Args:
+        group (ProcessGroup, optional): The process group to query. If ``None``,
+            the default process group is used.
+    """
+    pg = group or _get_default_group()
+    return pg.supports_window
+
+
+def _new_window(
+    tensor: torch.Tensor | None = None,
+    group: ProcessGroup | None = None,
+) -> Window:
+    """
+    Create a new one-sided (RMA) communication window on ``group``.
+
+    Args:
+        tensor (torch.Tensor, optional): If provided, the tensor is registered
+            with the new window.
+        group (ProcessGroup, optional): The process group to create the window
+            on. If ``None``, the default process group is used.
+
+    Returns:
+        Window: The new one-sided communication window.
+    """
+    pg = group or _get_default_group()
+    return pg.new_window(tensor)

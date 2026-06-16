@@ -32,6 +32,7 @@ from torch.testing._internal.common_utils import (
     MI200_ARCH,
     run_tests,
     TEST_HPU,
+    TEST_XPU,
 )
 from torch.testing._internal.distributed._tensor.common_dtensor import (
     ModelArgs,
@@ -77,6 +78,7 @@ class TestFullyShardOverlap(FSDPTest):
     @skip_if_rocm_arch_multiprocess(MI200_ARCH)
     @skip_if_lt_x_gpu(2)
     @unittest.skipIf(TEST_HPU, "Sleep is not supported on HPU")
+    @unittest.skipIf(TEST_XPU, "Sleep is not supported on XPU")
     def test_fully_shard_training_overlap(self):
         torch.manual_seed(42)
 
@@ -99,6 +101,7 @@ class TestFullyShardOverlap(FSDPTest):
         def delay_collective():
             # Share a stream so that all-gather and reduce-scatter block each
             # other like in `ProcessGroupNCCL`
+
             comm_stream.wait_stream(
                 torch.get_device_module(device_type).current_stream()
             )
@@ -321,6 +324,7 @@ class TestFullyShardOverlap(FSDPTest):
     @unittest.skipIf(IS_LINUX, "https://github.com/pytorch/pytorch/issues/131081")
     @skip_if_lt_x_gpu(2)
     @unittest.skipIf(TEST_HPU, "Sleep is not supported on HPU")
+    @unittest.skipIf(TEST_XPU, "Sleep is not supported on XPU")
     def test_fully_shard_post_optim_event_overlap(self):
         torch.manual_seed(42)
 

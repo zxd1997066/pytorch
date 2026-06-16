@@ -446,9 +446,7 @@ class _AllGatherBase(Function):
             gx = torch.empty(
                 out_size, device=grad_output.device, dtype=grad_output.dtype
             )
-            dist._reduce_scatter_base(gx, grad_output, ReduceOp.SUM, ctx.group)
-        else:
-            raise RuntimeError("Backend not supported!")
+        dist._reduce_scatter_base(gx, grad_output, ReduceOp.SUM, ctx.group)
         return (None, gx, None)
 
 

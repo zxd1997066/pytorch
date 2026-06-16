@@ -20,6 +20,7 @@ from typing import cast
 from unittest import TestCase
 from unittest.mock import call, MagicMock, Mock, patch, PropertyMock
 
+import torch
 import torch.distributed as dist
 from torch.distributed import HashStore, Store
 from torch.distributed.elastic.rendezvous import (
@@ -55,7 +56,9 @@ from torch.distributed.elastic.rendezvous.dynamic_rendezvous import (
 
 TEST_PORT = 54321
 TEST_ADDR = "host"
-
+device_type = (
+    acc.type if (acc := torch.accelerator.current_accelerator(True)) else "cpu"
+)
 
 class CustomAssertMixin:
     assertDictEqual: Callable
@@ -1800,7 +1803,7 @@ class IntegrationTest(TestCase):
         handler2 = self._create_handler(
             min_nodes=1,
             max_nodes=2,
-            keep_alive_interval=timedelta(seconds=1),
+            keep_alive_interval=1 if device_type == "xpu" else timedelta(seconds=1),
         )
         handler3 = self._create_handler(
             min_nodes=1,
