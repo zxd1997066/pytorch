@@ -3541,8 +3541,8 @@ class TestSyncDecisionCrossRanks(MultiProcessTestCase):
         store = c10d.FileStore(self.file_name, self.world_size)
         torch.accelerator.set_device_idx(self.rank)
         backend = c10d.get_default_backend_for_device(
-            torch.accelerator.current_accelerator().type
-        )
+            torch.accelerator.current_accelerator().type
+        )
         c10d.init_process_group(
             backend=backend, store=store, rank=self.rank, world_size=self.world_size
         )
