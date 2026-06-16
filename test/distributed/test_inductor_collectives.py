@@ -3539,9 +3539,12 @@ class TestSyncDecisionCrossRanks(MultiProcessTestCase):
         before calling the collective.
         """
         store = c10d.FileStore(self.file_name, self.world_size)
-        torch.cuda.set_device(self.rank)
+        torch.accelerator.set_device_idx(self.rank)
+        backend = c10d.get_default_backend_for_device(
+            torch.accelerator.current_accelerator().type
+        )
         c10d.init_process_group(
-            backend="nccl", store=store, rank=self.rank, world_size=self.world_size
+            backend=backend, store=store, rank=self.rank, world_size=self.world_size
         )
         group = c10d.distributed_c10d._get_default_group()
         group_name = "default"
