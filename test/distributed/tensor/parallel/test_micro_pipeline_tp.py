@@ -329,11 +329,11 @@ class MicroPipelineTPTest(TestCase):
             )
             return A @ B
 
-        A_shard = torch.rand(64, 2048, device="cuda")
+        A_shard = torch.rand(64, 2048, device=self.device_type)
         torch._dynamo.decorators.mark_unbacked(
             A_shard, 0, hint_override=A_shard.shape[0]
         )
-        B = torch.rand(4096, 16, device="cuda")
+        B = torch.rand(4096, 16, device=self.device_type)
 
         gm = _make_post_grad_fx(func, A_shard, B)
         with _test_mode():
@@ -359,11 +359,11 @@ class MicroPipelineTPTest(TestCase):
             )
             return A.narrow(1, 0, 4096) @ B
 
-        A_shard = torch.rand(64, 2048, device="cuda")
+        A_shard = torch.rand(64, 2048, device=self.device_type)
         torch._dynamo.decorators.mark_unbacked(
             A_shard, 0, hint_override=A_shard.shape[0]
         )
-        B = torch.rand(4096, 16, device="cuda")
+        B = torch.rand(4096, 16, device=self.device_type)
 
         gm = _make_post_grad_fx(func, A_shard, B)
         with _test_mode():
@@ -489,8 +489,8 @@ class MicroPipelineTPTest(TestCase):
             )
             return reduce_scatter_tensor(C, "avg", 0, group)
 
-        A = torch.rand(64, 32, device="cuda")
-        B = torch.rand(32, 16, device="cuda")
+        A = torch.rand(64, 32, device=self.device_type)
+        B = torch.rand(32, 16, device=self.device_type)
         torch._dynamo.decorators.mark_unbacked(B, 1, hint_override=B.shape[1])
 
         gm = _make_post_grad_fx(func, A, B)
