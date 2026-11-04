@@ -84,6 +84,7 @@ from torch.testing._internal.common_utils import (
     skipIfNoLapack,
     skipIfWindows,
     skipIfXpu,
+    TEST_CUDA,
     xfailIfS390X,
 )
 from torch.testing._internal.logging_utils import LoggingTestCase, make_logging_test
@@ -6598,7 +6599,7 @@ def forward(self, L_x_ : torch.Tensor, s77 : torch.SymInt, s27 : torch.SymInt):
         self.assertEqual(actual_str, expected_str)
 
     @unittest.skipIf(
-        not SM70OrLater,
+        TEST_CUDA and not SM70OrLater,
         "Triton only supports devices of CUDA capability >= 7.0",
     )
     def test_add_complex_conj(self):
